@@ -11,8 +11,12 @@ export const runAs = (identity, fn) => als.run(identity, fn);   // { token } or 
 
 export function wrapPool(pool) {
   if (pool.__mlWrapped) return pool;
-  const rawQuery = pool.query.bind(pool);
+  const origQuery = pool.query.bind(pool);
   const rawConnect = pool.connect.bind(pool);
+  // pg's Pool.query calls this.connect(), which is patched below: run it as a system context, or it
+  // would refuse inside a request. This is the door for code that must NOT run as the person
+  // (a connector holding a secret, bookkeeping): pool.__raw.query.
+  const rawQuery = (a, b, c) => als.run({ system: true }, () => origQuery(a, b, c));
 
   const scoped = async (id, a, b) => {
     if (!TOKEN_SHAPE.test(id.token || '')) throw Object.assign(new Error('unauthenticated'), { status: 401 });

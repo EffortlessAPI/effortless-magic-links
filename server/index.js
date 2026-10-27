@@ -58,8 +58,14 @@ export function registerMagicLinks(app, { pool, dir = SEED_DIR, env = process.en
         token = mintDevToken(devKeys, { email: DEV_ADMIN_EMAIL, devAdmin: true, hours: cfg.devTokenHours });
         req.ml.picked = false;
       }
-      const who = token ? await read(token) : null;
-      if (token && !who && via === 'cookie') ctx.clearCookie(res);   // a stale cookie
+      let who = token ? await read(token) : null;
+      if (token && !who && via === 'cookie') {                        // a stale cookie (cookies ignore ports: another dev server's, or last week's key)
+        ctx.clearCookie(res);
+        if (mode === 'dev') {                                         // dev: start over as the default admin, to pick again
+          token = mintDevToken(devKeys, { email: DEV_ADMIN_EMAIL, devAdmin: true, hours: cfg.devTokenHours });
+          who = await read(token); req.ml.picked = false;
+        }
+      }
       req.ml.token = who ? token : null;
       req.ml.user = who;
 

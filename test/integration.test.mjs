@@ -55,6 +55,15 @@ test('dev: picking a user mints a real token for them; no registration, no inact
   } finally { await app.close(); }
 });
 
+test('dev: a stale cookie (another dev server on the same host, an old key) starts over as the default admin instead of locking you out', { skip }, async () => {
+  const app = await bootApp({ dbUrl: db.url, env: DEV });
+  try {
+    const r = await app.call('GET', '/auth/session', null, { Cookie: 'ml_token=aaa.bbb.ccc' });
+    assert.deepEqual([r.status, r.body.devAdmin, r.body.picked], [200, true, false]);
+    assert.match(r.setCookie, /Max-Age=0/);
+  } finally { await app.close(); }
+});
+
 test('rules apply identically after pick-your-user: views honour row-level security', { skip }, async () => {
   // a real policy on things: you see your own rows, admins see all. Written TO ml_app, not named ml_*.
   await db.pool.query(`CREATE POLICY things_owner ON things FOR ALL TO ml_app
@@ -96,6 +105,16 @@ test('request-time guards: pool.connect and callback queries inside a request ar
   try {
     const r = await app.call('GET', '/api/connect');
     assert.equal(r.status, 500); assert.match(r.body.error, /skip row-level security/);
+  } finally { await app.close(); }
+});
+
+test('pool.__raw.query is the unscoped door for system code, usable inside a request', { skip }, async () => {
+  const app = await bootApp({ dbUrl: db.url, env: DEV });
+  try {
+    await app.call('POST', '/auth/dev/login', { email: 'bob@example.com' });
+    const r = await app.call('GET', '/api/raw');
+    assert.equal(r.status, 200);
+    assert.equal(r.body.scoped, 'ml_app'); assert.notEqual(r.body.u, 'ml_app');
   } finally { await app.close(); }
 });
 
@@ -175,4 +194,13 @@ test('live databases never go back to dev', { skip }, async () => {
     assert.match(app.failure.message, /has been live/);
     assert.equal((await app.call('GET', '/api/things')).status, 503);
   } finally { await app.close(); }
+});
+
+test('an unanswered seed question (still a $token$, even inside a string) falls back to the default', async () => {
+  const { loadConfig } = await import('../server/config.js');
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mlcfg-'));
+  fs.writeFileSync(path.join(dir, 'magic-links.config.json'), JSON.stringify({ tenantId: '$magicLinkTenantId$', usersView: 'vw_$usersTable$', adminRole: 'owner' }));
+  const cfg = loadConfig(dir, {});
+  assert.deepEqual([cfg.tenantId, cfg.usersView, cfg.adminRole], ['', 'vw_app_users', 'owner']);
 });

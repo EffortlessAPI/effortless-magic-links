@@ -43,6 +43,7 @@ export async function bootApp({ dbUrl, env = {}, config } = {}) {
     try { await pool.query('INSERT INTO things VALUES ($1,$2,$3)', [req.body.id, req.body.title, req.body.owner_email]); res.json({ ok: true }); }
     catch (e) { res.status(e.status || 400).json({ error: e.message }); }
   });
+  app.get('/api/raw', async (_req, res) => res.json({ u: (await pool.__raw.query('SELECT current_user AS u')).rows[0].u, scoped: (await pool.query('SELECT current_user AS u')).rows[0].u }));
   app.get('/api/connect', async (_req, res) => { try { await pool.connect(); res.json({ ok: true }); } catch (e) { res.status(500).json({ error: e.message }); } });
   app.get('/api/editor/ddl', async (_req, res) => res.json({ ok: true, as: (await pool.query('SELECT current_user AS u')).rows[0].u }));
   const server = http.createServer(app);

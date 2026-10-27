@@ -25,7 +25,7 @@ export const DEFAULTS = {
 };
 
 // An unanswered seed question still reads "$tenantId$" before the CLI has replaced it.
-const unanswered = (v) => typeof v === 'string' && /^\$[A-Za-z][A-Za-z0-9-]*\$$/.test(v);
+const unanswered = (v) => typeof v === 'string' && /\$[A-Za-z][A-Za-z0-9-]*\$/.test(v);
 
 export function configPath(dir) { return path.join(dir, 'magic-links.config.json'); }
 

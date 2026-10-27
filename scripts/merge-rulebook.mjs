@@ -3,8 +3,11 @@
 // Dry run unless --write. Touches nothing that is already there; appends the new tables as
 // text at the end of the file so the diff is only the new tables.
 //
-//   node scripts/merge-rulebook.mjs --rulebook ../effortless-rulebook/effortless-rulebook.json \
-//        [--admin you@example.com ...] [--write]
+//   node scripts/merge-rulebook.mjs --rulebook ../effortless-rulebook/effortless-rulebook.json [--write] [seed flags]
+//
+// A seed that needs more than its tables (starter rows from a flag, say) ships rulebook/hooks.mjs:
+//   export function prepare(tables, { values, flag }) -> { notes: [string] }   // may edit tables[name].data
+// This script is the same in every seed that carries rulebook tables; keep the copies identical.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,12 +17,13 @@ const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
 const values = (n) => args.flatMap((a, i) => (a === n ? [args[i + 1]] : []));
 const rulebookPath = path.resolve(values('--rulebook')[0] || '../effortless-rulebook/effortless-rulebook.json');
-const admins = values('--admin').map((e) => e.toLowerCase());
 
 const text = fs.readFileSync(rulebookPath, 'utf8');
 const rulebook = JSON.parse(text);
 const dir = path.join(here, '..', 'rulebook');
 const fragments = fs.readdirSync(dir).filter((f) => f.endsWith('.fragment.json'));
+const hooksFile = path.join(dir, 'hooks.mjs');
+const hooks = fs.existsSync(hooksFile) ? await import(hooksFile) : {};
 
 const line = (o) => JSON.stringify(o);
 const fmt = (name, t) => {
@@ -32,17 +36,15 @@ for (const f of fragments) {
   const frag = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
   for (const [name, table] of Object.entries(frag)) {
     if (rulebook[name]) { present.push(name); continue; }
-    if (name === 'AppUsers') {
-      table.data = admins.map((email) => ({ AppUserId: email, EmailAddress: email, DisplayName: email.split('@')[0], Role: 'admin', IsActive: true }));
-    }
     added.push([name, table]);
   }
 }
 
+const notes = hooks.prepare ? (hooks.prepare(Object.fromEntries(added), { values, flag }) || {}).notes || [] : [];
 for (const n of present) console.log(`= ${n} already in the rulebook: left alone`);
 if (!added.length) { console.log('nothing to add'); process.exit(0); }
 for (const [n, t] of added) console.log(`+ ${n}: ${t.schema.length} fields, ${t.data.length} rows`);
-if (!admins.length) console.log('! no --admin given: nobody can sign in on beta/production until an AppUsers admin row exists');
+for (const n of notes) console.log(n);
 if (!flag('--write')) { console.log('dry run: add --write to change', rulebookPath); process.exit(0); }
 
 const end = text.lastIndexOf('}');
