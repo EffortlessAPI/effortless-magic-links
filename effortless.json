@@ -1,0 +1,11 @@
+{
+  "SSoTmeProjectId": "6c0f2a54-6b1e-4f0e-9d1a-3f7d2c5a9e10",
+  "Name": "magic-links",
+  "Description": "Approved-user sign-in add-in: magic links in beta and production, a pick-your-user dev mode, and row-level security the database enforces in both. Nothing to transpile: the files are the seed.",
+  "ProjectSettings": [],
+  "ProjectTranspilers": [],
+  "ShowHidden": false,
+  "ShowAllFiles": false,
+  "CurrentPath": null,
+  "SSoTmeProjectFiles": null
+}

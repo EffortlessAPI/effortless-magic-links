@@ -1,0 +1,21 @@
+{
+  "seed": {
+    "id": "effortless-magic-links",
+    "displayName": "Magic Links Sign-in",
+    "tagline": "Approved users sign in with an emailed code. In dev, pick any user. The database enforces the rules either way.",
+    "description": "Adds a magic-links/ folder to a project that has the Backend API add-in: an AppUsers table (the approved people; there is no sign-up), a database-side RS256 verifier with row-level security that applies to every generated route, live magic-link sign-in in beta and production, a dev mode that mints a trusted global-admin token and offers a pick-your-user page, and web components for sign-in, user switching and managing the tenant, its email branding and the approved users. Pure SQL and Node: no plpython, no extension, no runtime dependency.",
+    "kind": "child",
+    "category": "auth",
+    "stack": "Postgres RLS, JWT, Magic links, Express, Web components",
+    "requiresInput": "Nothing in dev. A magic-link tenant (created from the admin screen) before beta or production.",
+    "mountPath": "magic-links",
+    "requires": "rulebook-backend",
+    "sortOrder": 240
+  },
+  "subSeeds": [],
+  "replacements": [
+    { "key": "magicLinkTenantId", "label": "Magic-link tenant id", "description": "Your tenant on magiclink.effortlessapi.com. Public. Leave blank in dev: the admin screen creates it.", "default": "" },
+    { "key": "usersTable", "label": "Users table", "description": "The database table of approved people (snake_case). AppUsers becomes app_users.", "default": "app_users" },
+    { "key": "adminRole", "label": "Admin role name", "description": "The role that may manage users and the tenant.", "default": "admin" }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "effortless-magic-links",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Effortless seed: approved-user magic-link sign-in with a pick-your-user dev mode and database-enforced row-level security.",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 test/*.test.mjs"
+  },
+  "devDependencies": {
+    "express": "^4.22.3",
+    "pg": "^8.12.0"
+  }
+}

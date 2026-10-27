@@ -1,0 +1,16 @@
+{
+  "tenantId": "$magicLinkTenantId$",
+  "baseUrl": "https://magiclink.effortlessapi.com",
+  "usersTable": "$usersTable$",
+  "usersView": "vw_$usersTable$",
+  "userKeyColumn": "app_user_id",
+  "emailColumn": "email_address",
+  "roleColumn": "role",
+  "activeColumn": "is_active",
+  "adminRole": "$adminRole$",
+  "cookieName": "ml_token",
+  "protect": ["/api"],
+  "systemPaths": [],
+  "devTokenHours": 8,
+  "dbVerifier": "builtin"
+}
