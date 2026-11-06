@@ -1,6 +1,19 @@
 // The magiclink.effortlessapi.com HTTP API (and a localhost stand-in for it). Magic-links is a
 // notary, not a referee: it says "this inbox is read by this person"; who is APPROVED is ours.
+import { createHash } from 'node:crypto';
+
 const j = async (res) => { try { return await res.json(); } catch { return {}; } };
+
+// The developer's own sign-in is behind a proof-of-work puzzle: find the number where
+// SHA-256(salt + number) is the challenge. Well under a second; each answer works once.
+export function solveChallenge({ salt, challenge, maxnumber, signature }) {
+  for (let number = 0; number <= maxnumber; number++) {
+    if (createHash('sha256').update(salt + number).digest('hex') === challenge) {
+      return Buffer.from(JSON.stringify({ salt, number, challenge, signature })).toString('base64');
+    }
+  }
+  throw new Error('magic-links sent a puzzle with no answer');
+}
 
 export function magicLinkClient(baseUrl, fetchImpl = globalThis.fetch) {
   const call = async (method, url, { body, token } = {}) => {
@@ -19,7 +32,7 @@ export function magicLinkClient(baseUrl, fetchImpl = globalThis.fetch) {
     verifyCode: (id, email, code) => call('POST', `/api/tenants/${encodeURIComponent(id)}/verify-code`, { body: { email, code } }),
     verifyLink: (id, email, token) => call('POST', `/api/tenants/${encodeURIComponent(id)}/verify-link`, { body: { email, token } }),
     // The developer's own sign-in, needed to create or change a tenant.
-    selfSend: (email) => call('POST', '/auth/send-code', { body: { email } }),
+    selfSend: async (email) => call('POST', '/auth/send-code', { body: { email, captcha_token: solveChallenge(await call('GET', '/auth/challenge')) } }),
     selfVerify: (email, code) => call('POST', '/auth/verify-code', { body: { email, code } }),
     createTenant: (token, body) => call('POST', '/api/tenants', { token, body }),
     patchTenant: (token, id, body) => call('PATCH', `/api/tenants/${encodeURIComponent(id)}`, { token, body }),
