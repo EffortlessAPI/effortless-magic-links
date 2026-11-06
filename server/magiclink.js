@@ -17,6 +17,7 @@ export function magicLinkClient(baseUrl, fetchImpl = globalThis.fetch) {
     tenantInfo: (id) => call('GET', `/api/tenants/${encodeURIComponent(id)}`),
     sendCode: (id, email) => call('POST', `/api/tenants/${encodeURIComponent(id)}/send-code`, { body: { email } }),
     verifyCode: (id, email, code) => call('POST', `/api/tenants/${encodeURIComponent(id)}/verify-code`, { body: { email, code } }),
+    verifyLink: (id, email, token) => call('POST', `/api/tenants/${encodeURIComponent(id)}/verify-link`, { body: { email, token } }),
     // The developer's own sign-in, needed to create or change a tenant.
     selfSend: (email) => call('POST', '/auth/send-code', { body: { email } }),
     selfVerify: (email, code) => call('POST', '/auth/verify-code', { body: { email, code } }),

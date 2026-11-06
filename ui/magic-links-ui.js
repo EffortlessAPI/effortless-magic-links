@@ -61,6 +61,7 @@ export function client(api = '') {
     logout: () => call('POST', '/logout'),
     requestCode: (email) => call('POST', '/request-code', { email }),
     verifyCode: (email, code) => call('POST', '/verify-code', { email, code }),
+    verifyLink: (email, token) => call('POST', '/verify-link', { email, token }),
     devUsers: () => call('GET', '/dev/users'),
     devLogin: (b) => call('POST', '/dev/login', b),
     admin: {
@@ -80,7 +81,20 @@ export function client(api = '') {
 // ---------------------------------------------------------------- sign in (live)
 class MlLogin extends HTMLElement {
   connectedCallback() {
-    injectCss(); this.api = client(this.getAttribute('api') || ''); this.step = 'email'; this.email = ''; this.render();
+    injectCss(); this.api = client(this.getAttribute('api') || ''); this.step = 'email'; this.email = '';
+    // Arrived from the Sign in button in the email: swap the link in script (mail scanners
+    // fetch links but do not run this), so the person just lands signed in. If it does not
+    // work there is no error to show: the code in that same email still does.
+    const url = new URL(location.href);
+    const token = url.searchParams.get('ml'); const email = url.searchParams.get('email');
+    if (!token || !email) return this.render();
+    url.searchParams.delete('ml'); url.searchParams.delete('email');
+    history.replaceState(null, '', url);
+    this.email = email; this.step = 'code';
+    this.innerHTML = '<div class="ml-card"><h2>Signing in…</h2></div>';
+    this.api.verifyLink(email, token)
+      .then(() => this.dispatchEvent(new CustomEvent('ml-signed-in', { bubbles: true })))
+      .catch(() => this.render());
   }
   render(err = '') {
     const email = this.step === 'email';

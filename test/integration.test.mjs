@@ -166,6 +166,15 @@ test('live: real magic links; dev keys are gone from the database and their toke
     assert.equal((await app.call('POST', '/auth/verify-code', { email: 'cy@example.com', code: '424242' })).status, 403); // inactive
     assert.equal((await app.call('POST', '/auth/verify-code', { email: 'ann@example.com', code: '000000' })).status, 400);
 
+    // the Sign in button in the email: approved people only, and a bad link signs nobody in
+    assert.equal((await app.call('POST', '/auth/verify-link', { email: 'eve@example.com', token: 'good-link' })).status, 403);
+    assert.equal((await app.call('POST', '/auth/verify-link', { email: 'ann@example.com' })).status, 400);
+    assert.notEqual((await app.call('POST', '/auth/verify-link', { email: 'ann@example.com', token: 'bad' })).status, 200);
+    const viaLink = await app.call('POST', '/auth/verify-link', { email: 'bob@example.com', token: 'good-link' });
+    assert.equal(viaLink.status, 200); assert.match(viaLink.setCookie, /HttpOnly/);
+    assert.equal(viaLink.body.email, 'bob@example.com');
+    app.clear();
+
     const ok = await app.call('POST', '/auth/verify-code', { email: 'ann@example.com', code: '424242' });
     assert.equal(ok.status, 200); assert.match(ok.setCookie, /Secure/); assert.match(ok.setCookie, /HttpOnly/);
     const s = await app.call('GET', '/auth/session');

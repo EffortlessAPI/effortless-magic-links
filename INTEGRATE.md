@@ -89,6 +89,10 @@ Nothing to switch in code. The stage's environment decides: `NODE_ENV=production
 3. Publish. On boot the API fetches the tenant's PUBLIC key, trusts it, deletes every dev key from that
    database and marks it live forever. It refuses to start if there is no tenant: it never falls back to dev.
 
+Optional, a Sign in button in the email: `<ml-login>` already handles it. Set the tenant's `login_url` to the
+app's address, then `POST /api/tenants/{id}/test-link` as its owner and click the emailed link
+(`effortless-magic-links` skill, Step 3b). Until then emails stay code-only.
+
 Works when: `/auth/session` says `"mode":"live"`, `/auth/dev/users` is a 404, a code arrives for
 an approved address and does not for a stranger.
 

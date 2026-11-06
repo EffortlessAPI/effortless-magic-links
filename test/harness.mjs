@@ -19,6 +19,10 @@ export async function stubMagicLink(tenantId = 'live-tenant') {
     const out = (code, o) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
     if (req.method === 'GET' && req.url === `/api/tenants/${tenantId}`) return out(200, { tenant_id: tenantId, public_key_pem: keys.publicPem, display_name: 'Stub' });
     if (req.url === `/api/tenants/${tenantId}/send-code`) { sent.push(body.email); return out(200, { ok: true }); }
+    if (req.url === `/api/tenants/${tenantId}/verify-link`) {
+      if (body.token !== 'good-link') return out(401, { ok: false, error: 'invalid_or_expired_token' });
+      return out(200, { ok: true, expires_in: 600, jwt: sign(keys.privatePem, { iss: `http://stub/${tenantId}`, tenant_id: tenantId, email: body.email, iat: nowS(), exp: nowS() + 600 }) });
+    }
     if (req.url === `/api/tenants/${tenantId}/verify-code`) {
       if (body.code !== '424242') return out(400, { error: 'invalid_code' });
       const jwt = sign(keys.privatePem, { iss: `http://stub/${tenantId}`, tenant_id: tenantId, email: body.email, iat: nowS(), exp: nowS() + 600 });

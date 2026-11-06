@@ -59,16 +59,28 @@ export function mountRoutes(ctx) {
     res.json({ ok: true });
   }, { liveOnly: true });
 
+  const signIn = async (res, out) => {
+    const who = await ctx.read(out.jwt);                       // the DATABASE checks the signature
+    if (!who || !who.approved) return res.status(403).json({ error: 'not_approved' });
+    ctx.setCookie(res, out.jwt, out.expires_in || 3600);
+    res.json({ ok: true, email: who.email, role: who.role, token: out.jwt, expires_in: out.expires_in });
+  };
+
   route('post', '/verify-code', async (req, res, b) => {
     if (!isEmail(b.email) || !/^\d{4,10}$/.test(String(b.code || ''))) return res.status(400).json({ error: 'email_and_code_required' });
     if (!(await raw('SELECT app.ml_is_email_approved($1) AS ok', [b.email])).rows[0].ok) {
       return res.status(403).json({ error: 'not_approved' });
     }
-    const out = await ctx.client.verifyCode(cfg.tenantId, b.email.toLowerCase(), String(b.code));
-    const who = await ctx.read(out.jwt);                       // the DATABASE checks the signature
-    if (!who || !who.approved) return res.status(403).json({ error: 'not_approved' });
-    ctx.setCookie(res, out.jwt, out.expires_in || 3600);
-    res.json({ ok: true, email: who.email, role: who.role, token: out.jwt, expires_in: out.expires_in });
+    await signIn(res, await ctx.client.verifyCode(cfg.tenantId, b.email.toLowerCase(), String(b.code)));
+  }, { liveOnly: true });
+
+  // The Sign in button in the email (tenant login_url): same checks as a typed code.
+  route('post', '/verify-link', async (req, res, b) => {
+    if (!isEmail(b.email) || !b.token) return res.status(400).json({ error: 'email_and_token_required' });
+    if (!(await raw('SELECT app.ml_is_email_approved($1) AS ok', [b.email])).rows[0].ok) {
+      return res.status(403).json({ error: 'not_approved' });
+    }
+    await signIn(res, await ctx.client.verifyLink(cfg.tenantId, b.email.toLowerCase(), String(b.token)));
   }, { liveOnly: true });
 
   // ------------------------------------------------------------------ dev: pick your user
@@ -133,7 +145,7 @@ export function mountRoutes(ctx) {
     res.json({ ok: true, tenantId: t.tenant_id });
   }, { admin: true });
 
-  const BRANDING = ['display_name', 'brand_color', 'gradient_to', 'from_email', 'jwt_expires_in_seconds', 'smtp_config'];
+  const BRANDING = ['display_name', 'brand_color', 'gradient_to', 'from_email', 'jwt_expires_in_seconds', 'smtp_config', 'login_url'];
   route('patch', '/admin/tenant', async (req, res, b) => {
     const token = selfToken();
     if (!token) return res.status(409).json({ error: 'sign_in_to_magiclink_first' });
