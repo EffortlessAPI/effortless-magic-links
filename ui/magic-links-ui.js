@@ -94,7 +94,11 @@ class MlLogin extends HTMLElement {
     this.innerHTML = '<div class="ml-card"><h2>Signing in…</h2></div>';
     this.api.verifyLink(email, token)
       .then(() => this.dispatchEvent(new CustomEvent('ml-signed-in', { bubbles: true })))
-      .catch(() => this.render());
+      .catch(async () => {
+        const s = await this.api.session().catch(() => null);   // a double click: already in
+        if (s?.authenticated) this.dispatchEvent(new CustomEvent('ml-signed-in', { bubbles: true }));
+        else this.render();
+      });
   }
   render(err = '') {
     const email = this.step === 'email';
@@ -151,7 +155,10 @@ class MlGate extends HTMLElement {
     catch (e) { return this.overlay(`<div class="ml-card"><h2>Cannot reach sign-in</h2><p>${esc(e.message)}</p></div>`); }
     this.session = s; document.dispatchEvent(new CustomEvent('ml-session', { detail: s }));
     const dev = s.mode === 'dev';
-    if (dev ? !s.picked : !s.authenticated) {
+    // A link in the address bar goes through <ml-login> even for someone already signed in:
+    // it may be another person's, and the owner's test link has to land.
+    const link = new URLSearchParams(location.search).has('ml');
+    if (dev ? !s.picked : !s.authenticated || link) {
       return this.overlay(dev ? '<ml-pick-user></ml-pick-user>' : '<ml-login></ml-login>');
     }
     this.querySelector('.ml-overlay')?.remove();
