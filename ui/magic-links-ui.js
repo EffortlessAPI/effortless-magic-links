@@ -103,7 +103,7 @@ class MlLogin extends HTMLElement {
   render(err = '') {
     const email = this.step === 'email';
     this.innerHTML = `<div class="ml-card">
-      <h2>Sign in</h2><p>${email ? 'Enter your email and we will send you a code.' : `We sent a code to <b>${esc(this.email)}</b>.`}</p>
+      <h2>Sign in</h2><p>${email ? 'Enter your email and we will send you a code.' : `If you have an account, we sent a code to <b>${esc(this.email)}</b>.`}</p>
       ${email ? `<label>Email</label><input type="email" autocomplete="email" autofocus>`
               : `<label>Code</label><input inputmode="numeric" autocomplete="one-time-code" autofocus>`}
       <button class="ml-btn">${email ? 'Send code' : 'Sign in'}</button>
