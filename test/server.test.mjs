@@ -213,6 +213,21 @@ test('the setup screen\'s data: checks with fixes, and the UI files', opts, asyn
   } finally { await srv.close(); await api.close(); magic.close(); await db.drop(); }
 });
 
+test('Dev on Effortless: the platform owns the tenant, so there is no tenant of your own and nothing to create', opts, async () => {
+  const cfg = loadConfigFrom({});
+  const db = await stage('srv_managed', S.appUsers.sql, cfg);
+  const api = await generatedApi(db.url);
+  const srv = await projectServer({ dbUrl: db.url, apiUrl: api.url, env: { MAGICLINK_MANAGED: 'effortless' } });
+  try {
+    await srv.call('POST', '/api/auth/simulated/sign-in', { email: 'ann@example.com' });
+    const r = await srv.call('GET', '/api/auth/setup');
+    assert.equal(r.body.tenantManaged, true);
+    assert.equal(r.body.checks.find((c) => c.id === 'tenant').ok, true);
+    assert.equal(r.body.readyToPublish, true);
+    assert.equal((await srv.call('POST', '/api/auth/setup/self/send', { email: 'x@y.test' })).body.error, 'managed_by_platform');
+  } finally { await srv.close(); await api.close(); await db.drop(); }
+});
+
 test('the generated API\'s schema and editor routes need the admin role', () => {
   assert.equal(isAdminRoute('POST', '/api/tables'), true);
   assert.equal(isAdminRoute('GET', '/api/tables'), false);

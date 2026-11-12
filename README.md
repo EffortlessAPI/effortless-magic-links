@@ -87,7 +87,7 @@ Names are **rulebook** names (PascalCase); the seed works out what Postgres call
 | `tenantId` | (blank) | `f3a1c2d4-...` | any time | the server: restart it | The project's tenant at magiclink.effortlessapi.com. Leave blank on Effortless: the platform mints one and sets MAGICLINK_TENANT_ID, which wins. Elsewhere, create one at magiclink.effortlessapi.com and put its id here. Public. |
 | `magicLinkBaseUrl` | `https://magiclink.effortlessapi.com` | `https://magiclink.effortlessapi.com` | any time | the server: restart it | Where the tenant lives. MAGICLINK_BASE_URL in the environment wins. |
 
-The environment wins for two: `MAGICLINK_TENANT_ID` (the platform sets it on every stage) and
+The environment wins for two: `MAGICLINK_TENANT_ID` (Effortless sets it on every published stage; on Dev it sets `MAGICLINK_MANAGED`, which says the tenant is the platform's) and
 `MAGICLINK_BASE_URL`. `STAGE` picks the front door. `NODE_ENV` is not read: Dev's runner runs
 with `NODE_ENV=production`.
 

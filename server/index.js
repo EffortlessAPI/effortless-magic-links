@@ -126,7 +126,8 @@ export function magicLinks({ pool, dir = SEED_DIR, env = process.env, fetchImpl 
   const cookie = (token, seconds) => `${cfg.cookieName}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${seconds}${secure ? '; Secure' : ''}`;
   const ctx = {
     cfg, mode, names, tenant, pool, env, dir, apiUrl, readSession, isAdmin, asCaller, ensureReady,
-    tenantManaged: !!env.MAGICLINK_TENANT_ID,
+    // Effortless owns the tenant: it sets MAGICLINK_TENANT_ID on published stages, and MAGICLINK_MANAGED on Dev.
+    tenantManaged: !!(env.MAGICLINK_TENANT_ID || env.MAGICLINK_MANAGED),
     setSession: (res, token) => res.setHeader('Set-Cookie', cookie(token, Math.round(cfg.sessionHours * 3600))),
     clearSession: (res) => res.setHeader('Set-Cookie', cookie('', 0)),
     forget: (token) => cache.delete(token),

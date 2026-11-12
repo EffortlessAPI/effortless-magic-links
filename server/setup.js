@@ -59,9 +59,13 @@ export async function setupReport(ctx, req) {
     try { const t = await tenant.info(); tenantInfo = { id: cfg.tenantId, name: t.display_name || null, fromEmail: t.from_email || null }; }
     catch (e) { tenantInfo = { id: cfg.tenantId, error: e.message }; }
   }
-  checks.push(check('tenant', tenantInfo && !tenantInfo.error,
-    tenantInfo ? (tenantInfo.error ? `Tenant ${cfg.tenantId} did not answer: ${tenantInfo.error}` : `Codes come from tenant ${cfg.tenantId}`) : 'No magic-link tenant yet',
+  // In Dev on Effortless (MAGICLINK_MANAGED) the tenant is the platform's and reaches every published stage.
+  const managedDev = !cfg.tenantId && !!env.MAGICLINK_MANAGED;
+  checks.push(check('tenant', managedDev || (tenantInfo && !tenantInfo.error),
+    managedDev ? 'Effortless owns this project\'s magic-link tenant; every published stage gets it'
+      : tenantInfo ? (tenantInfo.error ? `Tenant ${cfg.tenantId} did not answer: ${tenantInfo.error}` : `Codes come from tenant ${cfg.tenantId}`) : 'No magic-link tenant yet',
     env.MAGICLINK_TENANT_ID ? 'The platform\'s tenant did not answer; try again shortly.'
+      : env.MAGICLINK_MANAGED ? 'Effortless owns this project\'s tenant and gives it to every published stage. Dev does not need it (simulated users).'
       : 'On Effortless the platform mints one when the seed is added (MAGICLINK_TENANT_ID). Elsewhere create one at magiclink.effortlessapi.com and set tenantId.'));
 
   return {
@@ -69,7 +73,7 @@ export async function setupReport(ctx, req) {
     you: { email: req.signIn.claims.email, roles: req.signIn.claims.roles },
     readyToPublish: checks.filter((c) => ['people', 'sql', 'policies', 'admin', 'tenant'].includes(c.id)).every((c) => c.ok),
     checks,
-    tenant: tenantInfo, tenantManaged: !!env.MAGICLINK_TENANT_ID,
+    tenant: tenantInfo, tenantManaged: !!(env.MAGICLINK_TENANT_ID || env.MAGICLINK_MANAGED),
     mapping: SETTINGS.filter((s) => s.affects === 'rulebook' || ['roleKeyField', 'adminRole'].includes(s.key)).map((s) => ({
       key: s.key, label: s.label, value: typeof cfg[s.key] === 'object' ? JSON.stringify(cfg[s.key]) : String(cfg[s.key]), description: s.description,
     })),
