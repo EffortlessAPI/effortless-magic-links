@@ -82,6 +82,55 @@ test('a published stage: email, code, session; strangers get no code and no clue
   } finally { await srv.close(); await api.close(); magic.close(); await db.drop(); }
 });
 
+test('the Sign in button in the email: lands signed in once; a second click or a bad link does not', opts, async () => {
+  const cfg = loadConfigFrom({});
+  const db = await stage('srv_link', S.appUsers.sql, cfg);
+  const api = await generatedApi(db.url);
+  const magic = await stubMagicLink('tenant-1');
+  const srv = await projectServer({ dbUrl: db.url, apiUrl: api.url, env: { STAGE: 'beta', MAGICLINK_TENANT_ID: 'tenant-1' }, magic });
+  try {
+    assert.equal((await srv.call('POST', '/api/auth/verify-link', { email: 'bob@example.com', token: 'forged' })).status, 401);
+    assert.equal(srv.jar(), '');
+    const r = await srv.call('POST', '/api/auth/verify-link', { email: 'bob@example.com', token: 'good-link' });
+    assert.equal(r.status, 200);
+    assert.equal((await srv.call('GET', '/api/auth/session')).body.user.key, 'bob');
+    assert.equal((await srv.call('POST', '/api/auth/verify-link', { email: 'bob@example.com', token: 'good-link' })).status, 401, 'used once');
+    assert.equal((await srv.call('GET', '/api/auth/session')).body.signedIn, true, 'a second click keeps the session');
+    // A link for someone who is not approved proves the inbox and still gets no session.
+    srv.setJar('');
+    assert.equal((await srv.call('POST', '/api/auth/verify-link', { email: 'dan@example.com', token: 'good-link' })).status, 403);
+    assert.equal((await srv.call('POST', '/api/auth/verify-link', { email: 'bob@example.com' })).status, 400);
+  } finally { await srv.close(); await api.close(); magic.close(); await db.drop(); }
+});
+
+test('a tenant of your own (not on Effortless): sign in to magiclink, create it in Dev, change it; refused when the platform owns it', opts, async () => {
+  const cfg = loadConfigFrom({});
+  const db = await stage('srv_own', S.appUsers.sql, cfg);
+  const api = await generatedApi(db.url);
+  const magic = await stubMagicLink('tenant-new');
+  const srv = await projectServer({ dbUrl: db.url, apiUrl: api.url, magic, config: { usersTable: 'AppUsers' } });
+  try {
+    await srv.call('POST', '/api/auth/simulated/sign-in', { email: 'ann@example.com' });
+    assert.equal((await srv.call('POST', '/api/auth/setup/tenant', { display_name: 'Kitchen' })).body.error, 'sign_in_to_magiclink_first');
+    assert.equal((await srv.call('POST', '/api/auth/setup/self/send', { email: 'dev@example.com' })).status, 200);
+    assert.deepEqual(magic.selfSent, ['dev@example.com'], 'the puzzle was solved');
+    assert.equal((await srv.call('POST', '/api/auth/setup/self/verify', { email: 'dev@example.com', code: '999999' })).status, 200);
+    const r = await srv.call('POST', '/api/auth/setup/tenant', { display_name: 'Kitchen', login_url: 'https://kitchen.test/' });
+    assert.equal(r.body.tenantId, 'tenant-new');
+    const file = JSON.parse((await import('node:fs')).readFileSync(srv.configFile, 'utf8'));
+    assert.deepEqual(file, { usersTable: 'AppUsers', tenantId: 'tenant-new' }, 'only the tenant id is added to the project\'s answers');
+    assert.equal((await srv.call('POST', '/api/auth/setup/tenant', {})).status, 409, 'one tenant');
+    await srv.call('PATCH', '/api/auth/setup/tenant', { display_name: 'Common Table', login_url: 'https://kitchen.test/in', smtp_password: 'nope' });
+    assert.deepEqual(magic.patched.at(-1), { display_name: 'Common Table', login_url: 'https://kitchen.test/in' }, 'only branding fields pass');
+  } finally { await srv.close(); }
+  const managed = await projectServer({ dbUrl: db.url, apiUrl: api.url, magic, env: { MAGICLINK_TENANT_ID: 'tenant-new' } });
+  try {
+    await managed.call('POST', '/api/auth/simulated/sign-in', { email: 'ann@example.com' });
+    assert.equal((await managed.call('POST', '/api/auth/setup/self/send', { email: 'dev@example.com' })).body.error, 'managed_by_platform');
+    assert.equal((await managed.call('PATCH', '/api/auth/setup/tenant', { display_name: 'x' })).body.error, 'managed_by_platform');
+  } finally { await managed.close(); await api.close(); magic.close(); await db.drop(); }
+});
+
 test('a proof for another address, another tenant or signed by another key is refused', opts, async () => {
   const cfg = loadConfigFrom({});
   const db = await stage('srv_proof', S.appUsers.sql, cfg);

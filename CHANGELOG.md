@@ -20,8 +20,12 @@ project's own table, the project issues its own session, and every request runs 
   nothing maps.
 - **`STAGE` picks the mode**; `NODE_ENV` and `EFFORTLESS_STAGE` and `ML_MODE` are not read.
 - **Dev has no fake global admin**: pick-your-user lists real people only.
-- The RS256 verifier in SQL, the dev key pair, and creating a tenant from the admin screen are gone
-  (the platform mints tenants; elsewhere create one at magiclink.effortlessapi.com).
+- Kept from 1.x (Niko, 2026-11-06): the Sign in button in the code email (`POST /api/auth/verify-link`,
+  swapped in script so a mail scanner signs nobody in, landing even for someone already signed in, a
+  second click keeps the session), "If you have an account, we sent a code", and a tenant of your
+  own from the setup screen (your own magiclink sign-in with its proof-of-work puzzle, create in Dev,
+  change name / sender / sign-in link). On Effortless the platform owns the tenant and those answer 409.
+- The RS256 verifier in SQL and the dev key pair are gone (the server checks the magic-links token).
 - New: `candidates.mjs`, `doctor.mjs`, `check-seed.mjs`, `settings-table.mjs`, the setup screen
   (`/api/magic-links/setup`), `UPGRADE.md`, `REMOVE.md`.
 

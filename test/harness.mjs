@@ -4,6 +4,7 @@
 //   - the project's server (server/ from the Loops template): the seed's middleware, then a
 //     project route, then everything else passed on to that API unchanged,
 //   - a stand-in for magiclink.effortlessapi.com that signs real RS256 tokens.
+import crypto from 'node:crypto';
 import http from 'node:http';
 import express from 'express';
 import pg from 'pg';
@@ -15,7 +16,7 @@ import { writeConfigDir } from './config-helper.mjs';
 export const listen = (server) => new Promise((r) => server.listen(0, '127.0.0.1', () => r(server.address().port)));
 
 export async function stubMagicLink(tenantId = 'tenant-1') {
-  const keys = newKeyPair(); const other = newKeyPair(); const sent = [];
+  const keys = newKeyPair(); const other = newKeyPair(); const sent = []; const usedLinks = new Set(); const selfSent = []; const created = []; const patched = [];
   let issueFor = null; // force the next verify to prove another address / tenant
   const server = http.createServer(async (req, res) => {
     let b = ''; for await (const c of req) b += c;
@@ -23,6 +24,23 @@ export async function stubMagicLink(tenantId = 'tenant-1') {
     const out = (code, o) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
     if (req.method === 'GET' && req.url === `/api/tenants/${tenantId}`) return out(200, { tenant_id: tenantId, public_key_pem: keys.publicPem, display_name: 'Kitchen', from_email: 'hi@kitchen.test' });
     if (req.url === `/api/tenants/${tenantId}/send-code`) { sent.push(body.email); return out(200, { ok: true }); }
+    if (req.url === `/api/tenants/${tenantId}/verify-link`) {
+      if (body.token !== 'good-link' || usedLinks.has(body.email)) return out(401, { ok: false, error: 'invalid_or_expired_token' });
+      usedLinks.add(body.email);
+      return out(200, { ok: true, expires_in: 600, jwt: sign(keys.privatePem, { iss: `http://stub/${tenantId}`, tenant_id: tenantId, email: body.email, iat: nowS(), exp: nowS() + 600 }) });
+    }
+    // A developer's own account at magiclink (a tenant of their own).
+    if (req.url === '/auth/challenge') return out(200, { salt: 's?expires=9999999999', challenge: crypto.createHash('sha256').update('s?expires=99999999993').digest('hex'), maxnumber: 10, signature: 'x' });
+    if (req.url === '/auth/send-code') { if (!body.captcha_token) return out(400, { error: 'captcha_failed' }); selfSent.push(body.email); return out(200, { ok: true }); }
+    if (req.url === '/auth/verify-code') return body.code === '999999' ? out(200, { token: 'dev-token', expires_in: 3600 }) : out(400, { error: 'invalid_code' });
+    if (req.method === 'POST' && req.url === '/api/tenants') {
+      if (req.headers.authorization !== 'Bearer dev-token') return out(401, { error: 'unauthorized' });
+      created.push(body); return out(201, { tenant_id: 'tenant-new', ...body });
+    }
+    if (req.method === 'PATCH' && req.url.startsWith('/api/tenants/')) {
+      if (req.headers.authorization !== 'Bearer dev-token') return out(401, { error: 'unauthorized' });
+      patched.push(body); return out(200, { ok: true, ...body });
+    }
     if (req.url === `/api/tenants/${tenantId}/verify-code`) {
       if (body.code !== '424242' || !sent.includes(body.email)) return out(400, { error: 'invalid_code' });
       const f = issueFor || {}; issueFor = null;
@@ -32,7 +50,7 @@ export async function stubMagicLink(tenantId = 'tenant-1') {
     out(404, { error: 'not_found' });
   });
   const port = await listen(server);
-  return { url: `http://127.0.0.1:${port}`, tenantId, sent, close: () => server.close(),
+  return { url: `http://127.0.0.1:${port}`, tenantId, sent, selfSent, created, patched, close: () => server.close(),
     nextProof: (f) => { issueFor = f; }, otherKey: other.privatePem };
 }
 
@@ -72,6 +90,7 @@ export async function generatedApi(dbUrl) {
 /** The project's server, as the Loops template writes it, with the seed in front. */
 export async function projectServer({ dbUrl, apiUrl, env = {}, config = {}, magic }) {
   const dir = writeConfigDir(config);
+  const configFile = `${dir}/magic-links.config.json`;
   // The seed reads its settings from its own folder; the tests point it at a scratch one with the
   // same effortless-seed.json (loadConfig reads the manifest from the seed, the answers from dir).
   const pool = new pg.Pool({ connectionString: dbUrl, max: 4 });
@@ -102,6 +121,6 @@ export async function projectServer({ dbUrl, apiUrl, env = {}, config = {}, magi
     let parsed = text; try { parsed = JSON.parse(text); } catch { /* html or js */ }
     return { status: res.status, body: parsed, setCookie: set, type: res.headers.get('content-type') };
   };
-  return { base, call, signIn, jar: () => cookie, setJar: (c) => { cookie = c; },
+  return { base, call, signIn, configFile, jar: () => cookie, setJar: (c) => { cookie = c; },
     close: async () => { server.close(); await pool.end(); } };
 }

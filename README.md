@@ -6,7 +6,7 @@ server. Add it and only the people you approve get into the app, each as themsel
 
 | | Dev (`STAGE` unset or `dev`) | A published stage (any other `STAGE`) |
 |---|---|---|
-| How a person gets in | **Pick your user**: any active person in the table of people, no code | Email, a six-digit code from magiclink.effortlessapi.com, done |
+| How a person gets in | **Pick your user**: any active person in the table of people, no code | Email, then the six-digit code (or the Sign in button) from magiclink.effortlessapi.com |
 | What they get | The session a real sign-in gives that person, marked simulated | A session of this app's own |
 | Who may get in | Active people in the project's table of people. No sign-up | Same |
 | What they see | Row-level security, enforced by Postgres | Same, identically |

@@ -138,6 +138,11 @@ sign-in: the database is marked live on first start, simulated sessions stop wor
 good, and the stage's people are the rulebook's data at the first publish (later, that stage's
 admins manage them in the setup screen; Dev's rows reach it only by a data migration).
 
+**The Sign in button in the code email** opens the tenant's sign-in link (`login_url`) with
+`?ml=<token>&email=<address>`; `<ml-gate>` on any page of the app swaps it for a session. On
+Effortless the platform sets that link to the Production address; with a tenant of your own, set it
+in the setup screen ("Sign-in link"). The code in the same email works either way.
+
 Works when: on the stage, `/api/auth/session` says `"mode":"live"`, `/api/auth/simulated/users` is a
 404, a code arrives for an approved address and not for a stranger.
 

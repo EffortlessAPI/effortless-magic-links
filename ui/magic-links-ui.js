@@ -37,6 +37,22 @@ class MlGate extends HTMLElement {
   constructor() { super(); this.attachShadow({ mode: 'open' }); this.state = { step: 'loading' }; }
   connectedCallback() { this.load(); }
   async load() {
+    // Arrived from the Sign in button in the code email (?ml=<token>&email=<address>): swap it here,
+    // in script, so a mail scanner that fetches the link signs nobody in. Even for someone already
+    // signed in: it may be another person's link, and an owner's test link has to land.
+    const url = new URL(window.location.href);
+    const link = url.searchParams.get('ml'); const linkEmail = url.searchParams.get('email');
+    if (link && linkEmail) {
+      url.searchParams.delete('ml'); url.searchParams.delete('email');
+      window.history.replaceState(null, '', url);
+      this.set({ step: 'loading' });
+      try { await call('POST', '/verify-link', { email: linkEmail, token: link }); }
+      catch {
+        // Used already (a second click) or expired: the session decides, else the code in the same email.
+        const s = await call('GET', '/session').catch(() => null);
+        if (!s?.signedIn) return this.set({ step: 'code', email: linkEmail, session: s, error: 'That link has expired or was used. Type the code from the same email.' });
+      }
+    }
     try {
       const s = await call('GET', '/session');
       window.mlSession = s;
@@ -99,7 +115,7 @@ class MlGate extends HTMLElement {
         <button class="primary" ${s.busy ? 'disabled' : ''}>Email me a code</button></form>${err}`;
     }
     if (s.step === 'code') {
-      body = `<h1>Check your email</h1><p class="muted">If ${esc(s.email)} may sign in, a code is on its way. It lasts five minutes.</p>
+      body = `<h1>Check your email</h1><p class="muted">If you have an account, we sent a code to <b>${esc(s.email)}</b>. It lasts five minutes.</p>
         <form id="f"><input id="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="10" placeholder="123456" required>
         <button class="primary" ${s.busy ? 'disabled' : ''}>Sign in</button></form>
         <p><button id="back">Use another address</button></p>${err}`;
@@ -192,10 +208,21 @@ class MlSetup extends HTMLElement {
 
       <section><h2>Email</h2>
         ${r.tenant ? `<p>Codes are sent by tenant <code>${esc(r.tenant.id)}</code>${r.tenant.name ? ` as “${esc(r.tenant.name)}”` : ''}${r.tenant.fromEmail ? ` from ${esc(r.tenant.fromEmail)}` : ''}.
-          ${r.tenantManaged ? 'Effortless manages it: its name, sender and colour are in your project\'s Settings, Sign-in.' : ''}</p>
+          ${r.tenantManaged ? 'Effortless manages it: its name, sender and sign-in link are in your project\'s Settings, Sign-in.' : ''}</p>
           <div class="row"><button id="send" ${s.busy ? 'disabled' : ''}>Send me a code</button><label>Code<input id="tcode" inputmode="numeric"></label><button id="verify" ${s.busy ? 'disabled' : ''}>Check it</button></div>
           <p class="muted">Proves the tenant sends to you and accepts its code. No session is made.</p>`
-        : '<p class="err">No magic-link tenant yet. On Effortless the platform makes one when the seed is added; elsewhere create one at magiclink.effortlessapi.com and set tenantId in magic-links.config.json.</p>'}
+        : `<p class="err">No magic-link tenant yet.${r.tenantManaged ? '' : ' On Effortless the platform makes one when the seed is added. Here, create your own below (Dev only): it is written to magic-links.config.json, which you commit.'}</p>`}
+        ${r.tenantManaged ? '' : `
+          <h2 style="margin-top:14px">${r.tenant ? 'Change the tenant' : 'Create a tenant'} (your own magiclink account)</h2>
+          ${!s.self ? `<div class="row"><label>Your email<input id="selfemail" type="email" value="${esc(r.you.email)}"></label><button id="selfsend" ${s.busy ? 'disabled' : ''}>Send me a code</button>
+            ${s.selfSent ? '<label>Code<input id="selfcode" inputmode="numeric"></label><button id="selfverify">Sign in to magiclink</button>' : ''}</div>`
+          : `<p class="ok">Signed in to magiclink as ${esc(s.self)}.</p>
+            <form id="tenantform" class="row">
+              <label>App name<input id="tname" value="${esc(r.tenant?.name || '')}"></label>
+              <label>Sender<input id="tfrom" type="email" value="${esc(r.tenant?.fromEmail || '')}"></label>
+              <label>Sign-in link (the app's address)<input id="tlogin" placeholder="https://..."></label>
+              <button class="primary">${r.tenant ? 'Save' : 'Create'}</button>
+            </form>`}`}
       </section>
 
       <section><h2>Where people and roles live</h2>
@@ -224,6 +251,13 @@ class MlSetup extends HTMLElement {
       if (p.role && $('nrole')) row[p.role] = $('nrole').value.trim() || null;
       if (act) row[act] = !inv;
       this.act(async () => { await call('POST', rowsUrl(), row); await this.load(); }, `Added ${email}.`);
+    };
+    if ($('selfsend')) $('selfsend').onclick = () => this.act(async () => { const email = $('selfemail').value.trim(); await call('POST', '/setup/self/send', { email }); this.state.selfSent = true; this.state.selfEmail = email; }, 'Code sent: it is from magiclink, for you.');
+    if ($('selfverify')) $('selfverify').onclick = () => this.act(async () => { await call('POST', '/setup/self/verify', { email: s.selfEmail, code: $('selfcode').value.trim() }); this.state.self = s.selfEmail; });
+    if ($('tenantform')) $('tenantform').onsubmit = (e) => {
+      e.preventDefault();
+      const body = { display_name: $('tname').value.trim() || undefined, from_email: $('tfrom').value.trim() || undefined, login_url: $('tlogin').value.trim() || undefined };
+      this.act(async () => { await call(r.tenant ? 'PATCH' : 'POST', '/setup/tenant', body); await this.load(); }, r.tenant ? 'Saved.' : 'Tenant created and written to magic-links.config.json: commit it.');
     };
     if ($('send')) $('send').onclick = () => this.act(async () => { const o = await call('POST', '/setup/test-code'); this.state.sentTo = o.sentTo; }, `Code sent to ${r.you.email}.`);
     if ($('verify')) $('verify').onclick = () => this.act(async () => { await call('POST', '/setup/test-verify', { code: $('tcode').value.trim() }); }, 'The tenant works: code accepted.');

@@ -6,15 +6,28 @@ import crypto from 'node:crypto';
 
 const j = async (res) => { try { return await res.json(); } catch { return {}; } };
 
+// A developer's own sign-in at magiclink (to create or change a tenant without the platform) is
+// behind a proof-of-work puzzle: find the number where SHA-256(salt + number) is the challenge.
+// Well under a second; each answer works once.
+export function solveChallenge({ salt, challenge, maxnumber, signature }) {
+  for (let number = 0; number <= maxnumber; number++) {
+    if (crypto.createHash('sha256').update(salt + number).digest('hex') === challenge) {
+      return Buffer.from(JSON.stringify({ salt, number, challenge, signature })).toString('base64');
+    }
+  }
+  throw new Error('magic-links sent a puzzle with no answer');
+}
+
 export function tenantClient(cfg, fetchImpl = globalThis.fetch) {
   const base = cfg.magicLinkBaseUrl;
   const id = () => {
     if (!cfg.tenantId) throw Object.assign(new Error('no magic-link tenant is configured (MAGICLINK_TENANT_ID or tenantId)'), { status: 409, code: 'no_tenant' });
     return encodeURIComponent(cfg.tenantId);
   };
-  const call = async (method, url, body) => {
+  const call = async (method, url, body, token) => {
     const res = await fetchImpl(base + url, {
-      method, headers: { 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}),
+      method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}),
     });
     const data = await j(res);
     if (!res.ok) throw Object.assign(new Error(data.error || data.message || `magic-links answered ${res.status}`), { status: res.status, data });
@@ -62,6 +75,13 @@ export function tenantClient(cfg, fetchImpl = globalThis.fetch) {
     publicKey,
     sendCode: (email) => call('POST', `/api/tenants/${id()}/send-code`, { email }),
     verifyCode: (email, code) => call('POST', `/api/tenants/${id()}/verify-code`, { email, code }),
+    // The Sign in button in the code email (the tenant's login_url, ?ml=<token>&email=<address>).
+    verifyLink: (email, token) => call('POST', `/api/tenants/${id()}/verify-link`, { email, token }),
     verifyProof,
+    // A developer managing their own tenant (not on Effortless, where the platform owns it).
+    selfSend: async (email) => call('POST', '/auth/send-code', { email, captcha_token: solveChallenge(await call('GET', '/auth/challenge')) }),
+    selfVerify: (email, code) => call('POST', '/auth/verify-code', { email, code }),
+    createTenant: (token, body) => call('POST', '/api/tenants', body, token),
+    patchTenant: (token, body) => call('PATCH', `/api/tenants/${id()}`, body, token),
   };
 }
