@@ -9,7 +9,8 @@
 // Colours: --ml-accent, --ml-bg, --ml-fg, --ml-muted, --ml-line on any ancestor.
 const API = '/api/auth';
 const call = async (method, path, body) => {
-  const r = await fetch(path.startsWith('/') ? path : `${API}${path}`, {
+  // '/session' is under /api/auth; a full '/api/...' path (the generated API's tables) is used as it is.
+  const r = await fetch(path.startsWith('/api/') ? path : `${API}${path}`, {
     method, credentials: 'same-origin',
     headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined,
   });

@@ -128,3 +128,6 @@ held to row-level security) and a Dev database (a superuser), then run sessions,
 mapping against three different projects. The server tests run the project's server with a
 stand-in generated API and a stand-in magiclink that signs real RS256 tokens. The script tests run
 the agent's tools against rulebooks that are ambiguous on purpose.
+
+To look at the UI: `node test/demo-server.mjs 4999` (same `ML_TEST_PG`), then open http://127.0.0.1:4999/ (pick
+a user) and http://127.0.0.1:4999/api/magic-links/setup.
