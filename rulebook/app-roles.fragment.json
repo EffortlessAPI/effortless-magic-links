@@ -1,0 +1,15 @@
+{
+  "AppRoles": {
+    "Description": "What a signed-in person may be. A person's AppRole points here; policies ask app.has_role('<AppRoleId>'). Added by the effortless-magic-links seed because the project had no roles of its own.",
+    "schema": [
+      { "name": "AppRoleId", "datatype": "string", "type": "raw", "nullable": false, "Description": "The role's key, as policies name it: admin, member, ..." },
+      { "name": "Title", "datatype": "string", "type": "raw", "nullable": true, "Description": "How the app shows the role." },
+      { "name": "Description", "datatype": "string", "type": "raw", "nullable": true, "Description": "What someone holding it does." },
+      { "name": "Name", "datatype": "string", "type": "calculated", "nullable": true, "Description": "Display label for this role.", "formula": "={{Title}}" }
+    ],
+    "data": [
+      { "AppRoleId": "admin", "Title": "Admin", "Description": "Sees and changes everything, manages who may sign in." },
+      { "AppRoleId": "member", "Title": "Member", "Description": "Uses the app." }
+    ]
+  }
+}

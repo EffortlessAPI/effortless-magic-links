@@ -1,11 +1,12 @@
 {
   "name": "effortless-magic-links",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "Effortless seed: approved-user magic-link sign-in with a pick-your-user dev mode and database-enforced row-level security.",
+  "description": "Effortless seed: sign-in for a project's own server. Magic links prove the email, the project's table of people decides, the database enforces.",
   "scripts": {
-    "test": "node --test --test-concurrency=1 test/*.test.mjs"
+    "test": "node --test --test-concurrency=1 test/*.test.mjs",
+    "check": "node scripts/check-seed.mjs"
   },
   "devDependencies": {
     "express": "^4.22.3",

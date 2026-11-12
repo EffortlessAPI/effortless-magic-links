@@ -1,231 +1,234 @@
-// effortless-magic-links UI: plain custom elements, no build step, no framework, no dependency.
+// effortless-magic-links: the sign-in UI. Plain custom elements, no build, no framework.
 //
-//   <script type="module" src="/magic-links/ui/magic-links-ui.js"></script>
+//   <script type="module" src="/api/magic-links/ui/magic-links-ui.js"></script>
+//   <ml-gate> ...the whole app... </ml-gate>      nothing inside shows until someone is signed in
+//   <ml-setup></ml-setup>                         the admin screen (served at /api/magic-links/setup)
 //
-//   <ml-gate>            wrap your whole app in it: sign-in when live, pick-your-user in dev
-//     ...your app...
-//   </ml-gate>
-//
-//   <ml-admin></ml-admin>   the configuration screen, for an admin: tenant, email branding, approved users
-//
-// Attribute `api` on either = where /auth lives (default: same origin). Restyle with the
-// --ml-* custom properties below. Events: `ml-session` (detail = the session) on document.
+// The gate fires `ml-session` on document with the session ({ signedIn, user, admin, mode, ... })
+// and keeps it on window.mlSession, so the app can show who is signed in and what their roles allow.
+// Colours: --ml-accent, --ml-bg, --ml-fg, --ml-muted, --ml-line on any ancestor.
+const API = '/api/auth';
+const call = async (method, path, body) => {
+  const r = await fetch(path.startsWith('/') ? path : `${API}${path}`, {
+    method, credentials: 'same-origin',
+    headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined,
+  });
+  let data = {}; try { data = await r.json(); } catch { /* empty */ }
+  if (!r.ok) throw Object.assign(new Error(data.message || data.error || `${r.status}`), { status: r.status, data });
+  return data;
+};
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const CSS = `
-ml-gate, ml-admin { --ml-accent:#c8102e; --ml-ink:#1d1d1f; --ml-muted:#6b6b72; --ml-bg:#fff; --ml-line:#e2e2e6; --ml-warn:#8a5a00; font:15px/1.45 system-ui,sans-serif; color:var(--ml-ink); }
-ml-gate[data-locked] > :not(.ml-overlay) { display:none !important; }
-.ml-overlay { min-height:100vh; display:grid; place-items:center; padding:16px; background:#f6f6f8; box-sizing:border-box; }
-.ml-card { width:100%; max-width:420px; background:var(--ml-bg); border:1px solid var(--ml-line); border-radius:12px; padding:24px; box-sizing:border-box; }
-.ml-card h2 { margin:0 0 4px; font-size:20px; } .ml-card p { margin:0 0 16px; color:var(--ml-muted); }
-.ml-card label, ml-admin label { display:block; font-size:13px; color:var(--ml-muted); margin:12px 0 4px; }
-.ml-card input, ml-admin input, ml-admin select { width:100%; box-sizing:border-box; padding:10px 12px; font:inherit; border:1px solid var(--ml-line); border-radius:8px; background:var(--ml-bg); color:inherit; }
-.ml-btn { margin-top:16px; width:100%; padding:11px 14px; font:inherit; font-weight:600; border:0; border-radius:8px; background:var(--ml-accent); color:#fff; cursor:pointer; }
-.ml-btn.ml-quiet { background:transparent; color:var(--ml-ink); border:1px solid var(--ml-line); margin-top:8px; }
-.ml-btn[disabled] { opacity:.5; cursor:default; }
-.ml-err { color:#b00020; margin-top:10px; min-height:1em; } .ml-note { color:var(--ml-muted); font-size:13px; margin-top:10px; }
-.ml-users { display:grid; gap:8px; margin-top:8px; }
-.ml-user { display:flex; justify-content:space-between; align-items:center; gap:8px; text-align:left; padding:10px 12px; border:1px solid var(--ml-line); border-radius:8px; background:var(--ml-bg); color:inherit; font:inherit; cursor:pointer; width:100%; }
-.ml-user small { color:var(--ml-muted); }
-.ml-badge { position:fixed; right:12px; bottom:12px; z-index:9999; background:#1d1d1f; color:#fff; border-radius:999px; padding:6px 12px; font-size:12px; display:flex; gap:10px; align-items:center; }
-.ml-badge.ml-dev { background:var(--ml-warn); } .ml-badge button { background:none; border:0; color:inherit; text-decoration:underline; cursor:pointer; font:inherit; padding:0; }
-ml-admin { display:block; max-width:760px; margin:0 auto; padding:16px; box-sizing:border-box; }
-ml-admin section { border:1px solid var(--ml-line); border-radius:12px; padding:16px; margin:16px 0; background:var(--ml-bg); }
-ml-admin h3 { margin:0 0 8px; font-size:16px; }
-ml-admin .ml-row { display:grid; grid-template-columns:1fr 140px 90px 80px; gap:8px; align-items:center; padding:8px 0; border-top:1px solid var(--ml-line); }
-ml-admin .ml-row.ml-head { border-top:0; color:var(--ml-muted); font-size:13px; }
-ml-admin .ml-grid { display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
-ml-admin .ml-btn { width:auto; margin-top:12px; padding:9px 14px; }
-ml-admin .ml-inline { display:flex; gap:8px; align-items:end; } ml-admin .ml-inline > div { flex:1; }
-ml-admin code { background:#f0f0f3; padding:1px 5px; border-radius:4px; }
-@media (max-width:560px) { ml-admin .ml-row { grid-template-columns:1fr 1fr; } ml-admin .ml-grid { grid-template-columns:1fr; } }
+const BASE_CSS = `
+:host { --a: var(--ml-accent, #c8102e); --bg: var(--ml-bg, #fff); --fg: var(--ml-fg, #1d1d1f); --mu: var(--ml-muted, #6b6b70); --ln: var(--ml-line, #e3e3e6);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--fg); }
+@media (prefers-color-scheme: dark) { :host { --bg: var(--ml-bg, #17171a); --fg: var(--ml-fg, #f2f2f4); --mu: var(--ml-muted, #a0a0a8); --ln: var(--ml-line, #2e2e33); } }
+* { box-sizing: border-box; }
+button { font: inherit; border-radius: 8px; border: 1px solid var(--ln); background: var(--bg); color: var(--fg); padding: 8px 14px; cursor: pointer; }
+button.primary { background: var(--a); border-color: var(--a); color: #fff; font-weight: 600; }
+button:disabled { opacity: .55; cursor: default; }
+input, select { font: inherit; width: 100%; padding: 9px 11px; border: 1px solid var(--ln); border-radius: 8px; background: var(--bg); color: var(--fg); }
+.muted { color: var(--mu); } .err { color: #c0392b; } .ok { color: #1e8e3e; }
+h1 { font-size: 22px; margin: 0 0 4px; } h2 { font-size: 16px; margin: 0 0 8px; }
 `;
-function injectCss() {
-  if (document.getElementById('ml-css')) return;
-  const s = document.createElement('style'); s.id = 'ml-css'; s.textContent = CSS; document.head.appendChild(s);
-}
-const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-export function client(api = '') {
-  const call = async (method, path, body) => {
-    const res = await fetch(`${api}/auth${path}`, {
-      method, credentials: 'include',
-      headers: body ? { 'Content-Type': 'application/json' } : {},
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status, data });
-    return data;
-  };
-  return {
-    session: () => call('GET', '/session'),
-    logout: () => call('POST', '/logout'),
-    requestCode: (email) => call('POST', '/request-code', { email }),
-    verifyCode: (email, code) => call('POST', '/verify-code', { email, code }),
-    devUsers: () => call('GET', '/dev/users'),
-    devLogin: (b) => call('POST', '/dev/login', b),
-    admin: {
-      status: () => call('GET', '/admin/status'),
-      selfSend: (email) => call('POST', '/admin/self-auth/send', { email }),
-      selfVerify: (email, code) => call('POST', '/admin/self-auth/verify', { email, code }),
-      createTenant: (b) => call('POST', '/admin/tenant', b),
-      patchTenant: (b) => call('PATCH', '/admin/tenant', b),
-      users: () => call('GET', '/admin/users'),
-      addUser: (b) => call('POST', '/admin/users', b),
-      setUser: (email, b) => call('PATCH', `/admin/users/${encodeURIComponent(email)}`, b),
-      removeUser: (email) => call('DELETE', `/admin/users/${encodeURIComponent(email)}`),
-    },
-  };
-}
-
-// ---------------------------------------------------------------- sign in (live)
-class MlLogin extends HTMLElement {
-  connectedCallback() {
-    injectCss(); this.api = client(this.getAttribute('api') || ''); this.step = 'email'; this.email = ''; this.render();
-  }
-  render(err = '') {
-    const email = this.step === 'email';
-    this.innerHTML = `<div class="ml-card">
-      <h2>Sign in</h2><p>${email ? 'Enter your email and we will send you a code.' : `We sent a code to <b>${esc(this.email)}</b>.`}</p>
-      ${email ? `<label>Email</label><input type="email" autocomplete="email" autofocus>`
-              : `<label>Code</label><input inputmode="numeric" autocomplete="one-time-code" autofocus>`}
-      <button class="ml-btn">${email ? 'Send code' : 'Sign in'}</button>
-      ${email ? '' : '<button class="ml-btn ml-quiet" data-back>Use a different email</button>'}
-      <div class="ml-err">${esc(err)}</div>
-      <div class="ml-note">Only approved people can sign in. There is no sign-up.</div></div>`;
-    const input = this.querySelector('input'); const go = this.querySelector('.ml-btn');
-    const submit = async () => {
-      go.disabled = true;
-      try {
-        if (email) { this.email = input.value.trim(); await this.api.requestCode(this.email); this.step = 'code'; this.render(); }
-        else { await this.api.verifyCode(this.email, input.value.trim()); this.dispatchEvent(new CustomEvent('ml-signed-in', { bubbles: true })); }
-      } catch (e) { this.render(e.message === 'not_approved' ? 'That email is not approved for this app.' : 'That did not work. Check the code and try again.'); }
-    };
-    go.onclick = submit; input.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
-    this.querySelector('[data-back]')?.addEventListener('click', () => { this.step = 'email'; this.render(); });
-  }
-}
-
-// ---------------------------------------------------------------- pick your user (dev only)
-class MlPickUser extends HTMLElement {
-  async connectedCallback() {
-    injectCss(); this.api = client(this.getAttribute('api') || '');
-    this.innerHTML = '<div class="ml-card"><h2>Pick your user</h2><p>Loading…</p></div>';
-    try { this.users = (await this.api.devUsers()).users; this.render(); }
-    catch (e) { this.innerHTML = `<div class="ml-card"><h2>Pick your user</h2><div class="ml-err">${esc(e.message)}</div></div>`; }
-  }
-  render(err = '') {
-    this.innerHTML = `<div class="ml-card"><h2>Pick your user</h2>
-      <p>Development only. You get the same token a real sign-in would give them, and every rule applies.</p>
-      <div class="ml-users">${this.users.map((u, i) => `<button class="ml-user" data-i="${i}"><span>${u.devAdmin ? 'Global admin (dev default)' : esc(u.email)}<br><small>${esc(u.role)}</small></span><span>›</span></button>`).join('')}</div>
-      <div class="ml-err">${esc(err)}</div>
-      ${this.users.length < 2 ? '<div class="ml-note">No approved users yet. Add them in the admin screen, or in the AppUsers table.</div>' : ''}</div>`;
-    this.querySelectorAll('.ml-user').forEach((b) => b.onclick = async () => {
-      const u = this.users[+b.dataset.i];
-      try { await this.api.devLogin(u.devAdmin ? { admin: true } : { email: u.email }); this.dispatchEvent(new CustomEvent('ml-signed-in', { bubbles: true })); }
-      catch (e) { this.render(e.message); }
-    });
-  }
-}
-
-// ---------------------------------------------------------------- the gate
+// ------------------------------------------------------------------------------------- <ml-gate>
 class MlGate extends HTMLElement {
-  connectedCallback() { injectCss(); this.api = client(this.getAttribute('api') || ''); this.check(); this.addEventListener('ml-signed-in', () => this.check()); }
-  async check() {
-    this.setAttribute('data-locked', '');
-    let s;
-    try { s = await this.api.session(); }
-    catch (e) { return this.overlay(`<div class="ml-card"><h2>Cannot reach sign-in</h2><p>${esc(e.message)}</p></div>`); }
-    this.session = s; document.dispatchEvent(new CustomEvent('ml-session', { detail: s }));
-    const dev = s.mode === 'dev';
-    if (dev ? !s.picked : !s.authenticated) {
-      return this.overlay(dev ? '<ml-pick-user></ml-pick-user>' : '<ml-login></ml-login>');
-    }
-    this.querySelector('.ml-overlay')?.remove();
-    this.removeAttribute('data-locked');
-    this.badge(s);
-  }
-  overlay(html) {
-    this.querySelector('.ml-overlay')?.remove();
-    const o = document.createElement('div'); o.className = 'ml-overlay'; o.innerHTML = html;
-    o.firstElementChild?.setAttribute?.('api', this.getAttribute('api') || '');
-    this.prepend(o);
-  }
-  badge(s) {
-    this.querySelector('.ml-badge')?.remove();
-    const b = document.createElement('div'); b.className = `ml-badge${s.mode === 'dev' ? ' ml-dev' : ''}`;
-    b.innerHTML = `<span>${s.mode === 'dev' ? 'DEV · ' : ''}${esc(s.devAdmin ? 'global admin' : s.email)}${s.role && !s.devAdmin ? ` (${esc(s.role)})` : ''}</span><button>${s.mode === 'dev' ? 'switch user' : 'sign out'}</button>`;
-    b.querySelector('button').onclick = async () => { await this.api.logout(); this.check(); };
-    this.appendChild(b);
-  }
-}
-
-// ---------------------------------------------------------------- admin
-class MlAdmin extends HTMLElement {
-  connectedCallback() { injectCss(); this.api = client(this.getAttribute('api') || ''); this.load(); }
-  async load(msg = '') {
+  constructor() { super(); this.attachShadow({ mode: 'open' }); this.state = { step: 'loading' }; }
+  connectedCallback() { this.load(); }
+  async load() {
     try {
-      const [st, us] = await Promise.all([this.api.admin.status(), this.api.admin.users().catch(() => ({ users: [] }))]);
-      this.st = st; this.users = us.users; this.render(msg);
-    } catch (e) { this.innerHTML = `<section><h3>Magic links</h3><div class="ml-err">${esc(e.status === 403 ? 'Admins only.' : e.message)}</div></section>`; }
-  }
-  render(msg) {
-    const { st } = this; const t = st.tenant; const live = st.mode === 'live';
-    this.innerHTML = `
-    <section><h3>Sign-in</h3>
-      <div>Mode: <b>${live ? 'live (real magic links)' : 'dev (pick your user)'}</b>. ${live ? '' : 'Beta and production switch to live magic links automatically.'}</div>
-      <div class="ml-note">Tenant: ${st.config.tenantId ? `<code>${esc(st.config.tenantId)}</code>${t ? ` · ${esc(t.display_name || '')}` : ''}${st.tenantError ? ` · <span class="ml-err">${esc(st.tenantError)}</span>` : ''}` : 'none yet. Beta and production cannot start until one exists.'}</div>
-      <div class="ml-note">This database trusts: ${st.trustedTenants.map((x) => `<code>${esc(x.tenant_id)}</code>${x.is_dev ? ' (dev)' : ''}`).join(', ') || 'nobody'}.</div>
-      <div class="ml-err" data-msg>${esc(msg)}</div></section>
-    <section><h3>Magic-link tenant</h3>${this.tenantForm()}</section>
-    <section><h3>Approved users</h3>
-      <div class="ml-note">Only these people can sign in. Their role comes from this list, never from the sign-in token.</div>
-      <div class="ml-row ml-head"><span>Email</span><span>Role</span><span>Active</span><span></span></div>
-      ${this.users.map((u, i) => `<div class="ml-row"><span>${esc(u.email)}</span>
-        <input data-role="${i}" value="${esc(u.role)}"><span><input type="checkbox" data-active="${i}" ${u.is_active === false ? '' : 'checked'}></span>
-        <button class="ml-btn ml-quiet" data-del="${i}">Remove</button></div>`).join('')}
-      <div class="ml-inline"><div><label>Add by email</label><input data-new-email type="email" placeholder="person@example.com"></div>
-        <div><label>Role</label><input data-new-role value="member"></div><button class="ml-btn" data-add>Add</button></div></section>`;
-    this.wire();
-  }
-  tenantForm() {
-    const { st } = this; const t = st.tenant || {};
-    const signedIn = st.selfAuth;
-    const auth = signedIn ? `<div class="ml-note">Signed in to magic-links as <b>${esc(signedIn)}</b>.</div>` : `
-      <div class="ml-note">Creating or changing a tenant needs <i>your</i> developer sign-in at magiclink.effortlessapi.com.</div>
-      <div class="ml-inline"><div><label>Your email</label><input data-self-email type="email"></div><button class="ml-btn" data-self-send>Send code</button></div>
-      <div class="ml-inline"><div><label>Code</label><input data-self-code inputmode="numeric"></div><button class="ml-btn" data-self-verify>Sign in</button></div>`;
-    if (!st.config.tenantId) {
-      return `${auth}<div class="ml-grid"><div><label>App name (shown in the email)</label><input data-t="display_name"></div>
-        <div><label>From address (optional)</label><input data-t="from_email" type="email"></div></div>
-        <button class="ml-btn" data-create ${signedIn && st.mode === 'dev' ? '' : 'disabled'}>Create tenant</button>
-        ${st.mode === 'dev' ? '' : '<div class="ml-note">Tenants are created in dev, then committed.</div>'}`;
+      const s = await call('GET', '/session');
+      window.mlSession = s;
+      document.dispatchEvent(new CustomEvent('ml-session', { detail: s }));
+      if (s.signedIn) return this.set({ step: 'in', session: s });
+      if (s.mode === 'dev') {
+        const { users } = await call('GET', '/simulated/users');
+        return this.set({ step: 'pick', session: s, users });
+      }
+      return this.set({ step: 'email', session: s });
+    } catch (e) {
+      this.set({ step: 'error', error: e.status === 503 ? (e.data.message || e.message) : `Sign-in is not answering (${e.message}).` });
     }
-    return `${auth}<div class="ml-grid">
-      <div><label>App name</label><input data-t="display_name" value="${esc(t.display_name)}"></div>
-      <div><label>From address</label><input data-t="from_email" value="${esc(t.from_email)}"></div>
-      <div><label>Brand colour</label><input data-t="brand_color" value="${esc(t.brand_color)}" placeholder="#c8102e"></div>
-      <div><label>Gradient to (optional)</label><input data-t="gradient_to" value="${esc(t.gradient_to)}"></div>
-      <div><label>Session length (seconds)</label><input data-t="jwt_expires_in_seconds" value="${esc(t.jwt_expires_in_seconds)}"></div></div>
-      <button class="ml-btn" data-save ${signedIn ? '' : 'disabled'}>Save branding</button>`;
   }
-  wire() {
-    const $ = (s) => this.querySelector(s); const say = (m) => this.load(m);
-    const run = (fn) => async () => { try { await fn(); } catch (e) { $('[data-msg]').textContent = e.message; } };
-    const fields = () => Object.fromEntries([...this.querySelectorAll('[data-t]')].map((i) => [i.dataset.t, i.value]).filter(([, v]) => v !== ''));
-    $('[data-self-send]')?.addEventListener('click', run(async () => { await this.api.admin.selfSend($('[data-self-email]').value.trim()); $('[data-msg]').textContent = 'Code sent. Check your inbox.'; }));
-    $('[data-self-verify]')?.addEventListener('click', run(async () => { await this.api.admin.selfVerify($('[data-self-email]').value.trim(), $('[data-self-code]').value.trim()); say('Signed in to magic-links.'); }));
-    $('[data-create]')?.addEventListener('click', run(async () => { await this.api.admin.createTenant(fields()); say('Tenant created. Commit magic-links.config.json.'); }));
-    $('[data-save]')?.addEventListener('click', run(async () => {
-      const f = fields(); if (f.jwt_expires_in_seconds) f.jwt_expires_in_seconds = Number(f.jwt_expires_in_seconds);
-      await this.api.admin.patchTenant(f); say('Saved.');
-    }));
-    $('[data-add]')?.addEventListener('click', run(async () => { await this.api.admin.addUser({ email: $('[data-new-email]').value.trim(), role: $('[data-new-role]').value.trim() || 'member' }); say('Added.'); }));
-    this.querySelectorAll('[data-role]').forEach((i) => i.onchange = run(async () => { await this.api.admin.setUser(this.users[+i.dataset.role].email, { role: i.value }); say('Saved.'); }));
-    this.querySelectorAll('[data-active]').forEach((i) => i.onchange = run(async () => { await this.api.admin.setUser(this.users[+i.dataset.active].email, { is_active: i.checked }); say('Saved.'); }));
-    this.querySelectorAll('[data-del]').forEach((b) => b.onclick = run(async () => { await this.api.admin.removeUser(this.users[+b.dataset.del].email); say('Removed.'); }));
+  set(patch) { this.state = { ...this.state, ...patch }; this.render(); }
+  async act(fn) {
+    this.set({ busy: true, error: null });
+    try { await fn(); } catch (e) { this.set({ error: e.data?.hint || e.data?.error?.replace(/_/g, ' ') || e.message }); } finally { this.set({ busy: false }); }
+  }
+  render() {
+    const s = this.state;
+    const css = `<style>${BASE_CSS}
+      .wrap { min-height: 100vh; display: grid; place-items: center; background: var(--bg); padding: 24px; }
+      .card { width: min(440px, 100%); border: 1px solid var(--ln); border-radius: 14px; padding: 24px; background: var(--bg); }
+      .card form { display: grid; gap: 10px; margin-top: 14px; }
+      .people { display: grid; gap: 6px; margin-top: 14px; max-height: 60vh; overflow: auto; }
+      .person { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; text-align: left; padding: 10px 12px; }
+      .person b { font-weight: 600; } .person small { color: var(--mu); }
+      .role { font-size: 12px; border: 1px solid var(--ln); border-radius: 99px; padding: 1px 8px; color: var(--mu); align-self: center; grid-row: span 2; }
+      .tag { display: inline-block; font-size: 12px; border-radius: 99px; padding: 2px 8px; background: color-mix(in srgb, var(--a) 12%, transparent); color: var(--a); margin-bottom: 8px; }
+      .badge { position: fixed; left: 12px; bottom: 12px; z-index: 2147483000; display: flex; gap: 8px; align-items: center; font-size: 13px;
+               background: var(--bg); border: 1px solid var(--ln); border-radius: 99px; padding: 5px 6px 5px 12px; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+      .badge button { padding: 3px 10px; border-radius: 99px; font-size: 12px; }
+      .badge a { color: var(--a); font-size: 12px; text-decoration: none; }
+    </style>`;
+    if (s.step === 'in') {
+      const u = s.session.user;
+      this.shadowRoot.innerHTML = `${css}<slot></slot>
+        <div class="badge" part="badge">
+          <span title="${esc(u.email)}">${esc(u.name || u.email)}${u.roles.length ? ` · <span class="muted">${esc(u.roles.join(', '))}</span>` : ''}${s.session.simulated ? ' <span class="muted">(simulated)</span>' : ''}</span>
+          ${s.session.admin ? `<a href="${esc(s.session.setup)}">Sign-in setup</a>` : ''}
+          <button id="out">${s.session.mode === 'dev' ? 'Switch' : 'Sign out'}</button>
+        </div>`;
+      this.shadowRoot.getElementById('out').onclick = () => this.act(async () => { await call('POST', '/logout'); window.location.reload(); });
+      return;
+    }
+    const err = s.error ? `<p class="err">${esc(s.error)}</p>` : '';
+    let body = '';
+    if (s.step === 'loading') body = '<p class="muted">Checking who you are…</p>';
+    if (s.step === 'error') body = `<h1>Sign-in is not ready</h1><p class="err">${esc(s.error)}</p><button id="retry">Try again</button>`;
+    if (s.step === 'pick') {
+      body = `<span class="tag">Dev: simulated users</span><h1>Pick who you are</h1>
+        <p class="muted">Nobody types a code here. You see exactly what this person will see once the app is published.</p>
+        ${s.users.length ? `<div class="people">${s.users.map((u, i) => `<button class="person" data-i="${i}"><b>${esc(u.name || u.email)}</b><span class="role">${esc(u.roles.join(', ') || 'no role')}</span><small>${esc(u.email)}</small></button>`).join('')}</div>`
+          : '<p class="err">Nobody is active in the table of people yet. Add someone (the Data tab, or ask the agent) and reload.</p>'}${err}`;
+    }
+    if (s.step === 'email') {
+      body = `<h1>Sign in</h1><p class="muted">We email you a six-digit code. Only people this app has approved get one.</p>
+        <form id="f"><input id="email" type="email" autocomplete="email" placeholder="you@example.com" required value="${esc(s.email || '')}">
+        <button class="primary" ${s.busy ? 'disabled' : ''}>Email me a code</button></form>${err}`;
+    }
+    if (s.step === 'code') {
+      body = `<h1>Check your email</h1><p class="muted">If ${esc(s.email)} may sign in, a code is on its way. It lasts five minutes.</p>
+        <form id="f"><input id="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="10" placeholder="123456" required>
+        <button class="primary" ${s.busy ? 'disabled' : ''}>Sign in</button></form>
+        <p><button id="back">Use another address</button></p>${err}`;
+    }
+    this.shadowRoot.innerHTML = `${css}<div class="wrap"><div class="card" part="card">${body}</div></div>`;
+    const $ = (id) => this.shadowRoot.getElementById(id);
+    if ($('retry')) $('retry').onclick = () => this.load();
+    if ($('back')) $('back').onclick = () => this.set({ step: 'email', error: null });
+    this.shadowRoot.querySelectorAll('.person').forEach((b) => {
+      b.onclick = () => this.act(async () => { await call('POST', '/simulated/sign-in', { email: s.users[Number(b.dataset.i)].email }); window.location.reload(); });
+    });
+    const f = $('f');
+    if (f && s.step === 'email') f.onsubmit = (e) => { e.preventDefault(); const email = $('email').value.trim(); this.act(async () => { await call('POST', '/request-code', { email }); this.set({ step: 'code', email }); }); };
+    if (f && s.step === 'code') f.onsubmit = (e) => { e.preventDefault(); const code = $('code').value.trim(); this.act(async () => { await call('POST', '/verify-code', { email: s.email, code }); window.location.reload(); }); };
   }
 }
 
-for (const [name, cls] of [['ml-login', MlLogin], ['ml-pick-user', MlPickUser], ['ml-gate', MlGate], ['ml-admin', MlAdmin]]) {
-  if (!customElements.get(name)) customElements.define(name, cls);
+// ------------------------------------------------------------------------------------ <ml-setup>
+class MlSetup extends HTMLElement {
+  constructor() { super(); this.attachShadow({ mode: 'open' }); this.state = { loading: true }; }
+  connectedCallback() { this.load(); }
+  set(patch) { this.state = { ...this.state, ...patch }; this.render(); }
+  async load() {
+    try {
+      const report = await call('GET', '/setup');
+      const p = report.people;
+      const fields = [p.key, p.email, p.name, p.active.replace(/^!/, ''), p.role].filter(Boolean);
+      let people = []; let roles = [];
+      try { people = (await call('GET', `/api/tables/${encodeURIComponent(p.table)}?fields=${fields.join(',')}`)).rows || []; } catch (e) { report.peopleError = e.message; }
+      if (p.rolesTable && p.roleKey) {
+        try { roles = ((await call('GET', `/api/tables/${encodeURIComponent(p.rolesTable)}?fields=${p.roleKey}`)).rows || []).map((r) => Object.values(r)[0]); } catch { /* text roles */ }
+      }
+      this.set({ loading: false, report, people, roles, error: null });
+    } catch (e) { this.set({ loading: false, error: e.status === 403 ? 'Only an admin can open this screen.' : e.message }); }
+  }
+  // The rows come from the view (snake_case columns); writes take rulebook names.
+  col(name) { return name ? name.replace(/([A-Z]+s)([A-Z])/g, '$1_$2').replace(/([A-Z]+?)([A-Z](?!s$|s(?=[A-Z]))[a-z])/g, '$1_$2').replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/[^\p{L}\p{N}]+/gu, '_').toLowerCase().replace(/^_+|_+$/g, '') : null; }
+  async act(fn, okMsg) {
+    this.set({ busy: true, msg: null, error: null });
+    try { await fn(); this.set({ msg: okMsg || null }); } catch (e) { this.set({ error: e.data?.error || e.message }); } finally { this.set({ busy: false }); }
+  }
+  render() {
+    const s = this.state;
+    const css = `<style>${BASE_CSS}
+      :host { display: block; max-width: 920px; margin: 0 auto; padding: 24px 16px 64px; }
+      section { border: 1px solid var(--ln); border-radius: 12px; padding: 18px; margin-top: 16px; }
+      table { width: 100%; border-collapse: collapse; font-size: 14px; } td, th { text-align: left; padding: 7px 8px; border-top: 1px solid var(--ln); vertical-align: top; }
+      th { font-weight: 600; color: var(--mu); border-top: 0; } code { font-size: 13px; }
+      .check { display: grid; grid-template-columns: 22px 1fr; gap: 2px 8px; padding: 6px 0; } .check .fix { grid-column: 2; color: var(--mu); font-size: 13px; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; } .row > * { flex: 1 1 160px; } .row button { flex: 0 0 auto; }
+      .pill { font-size: 12px; border-radius: 99px; padding: 2px 9px; border: 1px solid var(--ln); }
+      .scroll { overflow-x: auto; }
+    </style>`;
+    if (s.loading) { this.shadowRoot.innerHTML = `${css}<p class="muted">Loading…</p>`; return; }
+    if (!s.report) { this.shadowRoot.innerHTML = `${css}<h1>Sign-in</h1><p class="err">${esc(s.error)}</p>`; return; }
+    const r = s.report; const p = r.people;
+    const k = this.col(p.key); const em = this.col(p.email); const nm = this.col(p.name);
+    const act = p.active.replace(/^!/, ''); const inv = p.active.startsWith('!'); const ac = this.col(act); const rl = this.col(p.role);
+    const isActive = (row) => (!ac ? true : inv ? row[ac] !== true : row[ac] !== false);
+    const roleCell = (row, i) => {
+      if (!p.role) return `<span class="muted">${p.grants ? `in ${esc(p.grants)}` : '—'}</span>`;
+      if (s.roles.length) return `<select data-role="${i}" ${s.busy ? 'disabled' : ''}>${['', ...s.roles].map((x) => `<option ${String(row[rl] ?? '') === x ? 'selected' : ''} value="${esc(x)}">${esc(x || '(none)')}</option>`).join('')}</select>`;
+      return `<input data-role="${i}" value="${esc(row[rl] ?? '')}">`;
+    };
+    this.shadowRoot.innerHTML = `${css}
+      <h1>Sign-in</h1>
+      <p class="muted">${r.mode === 'dev' ? 'Dev: people sign in by picking a user. Every published stage asks for an emailed code.' : `Live (${esc(r.stage)}): people sign in with an emailed code.`}
+        You are ${esc(r.you.email)} (${esc(r.you.roles.join(', '))}).</p>
+      ${s.msg ? `<p class="ok">${esc(s.msg)}</p>` : ''}${s.error ? `<p class="err">${esc(s.error)}</p>` : ''}
+
+      <section><h2>${r.readyToPublish ? '<span class="ok">Ready to publish</span>' : 'Before you publish'}</h2>
+        ${r.checks.map((c) => `<div class="check"><span class="${c.ok ? 'ok' : 'err'}">${c.ok ? '✓' : '✗'}</span><span>${esc(c.says)}</span>${c.ok ? '' : `<span class="fix">${esc(c.fix)}</span>`}</div>`).join('')}
+      </section>
+
+      <section><h2>People who may sign in</h2>
+        <p class="muted">Rows of <code>${esc(p.table)}</code>. There is no sign-up: only these people get a code. ${r.mode === 'dev' ? 'In Dev a change here is a change to the rulebook\'s data; save it from the editor like any Data tab edit, and it is what a stage starts with.' : 'These are this stage\'s people.'}</p>
+        ${r.peopleError ? `<p class="err">${esc(r.peopleError)}</p>` : ''}
+        <div class="scroll"><table><tr><th>Name</th><th>Email</th><th>Role</th><th>Active</th><th></th></tr>
+        ${s.people.map((row, i) => `<tr><td>${esc(nm ? row[nm] : '')}</td><td>${esc(row[em])}</td><td>${roleCell(row, i)}</td>
+          <td>${ac ? `<input type="checkbox" data-active="${i}" ${isActive(row) ? 'checked' : ''} ${s.busy ? 'disabled' : ''} style="width:auto">` : '<span class="muted">always</span>'}</td>
+          <td>${p.key ? `<button data-del="${i}" ${s.busy ? 'disabled' : ''}>Remove</button>` : ''}</td></tr>`).join('')}
+        </table></div>
+        <form id="add" class="row" style="margin-top:12px">
+          <label>Email<input id="nemail" type="email" required></label>
+          ${p.name ? '<label>Name<input id="nname"></label>' : ''}
+          ${p.role ? (s.roles.length ? `<label>Role<select id="nrole">${s.roles.map((x) => `<option>${esc(x)}</option>`).join('')}</select></label>` : '<label>Role<input id="nrole"></label>') : ''}
+          <button class="primary" ${s.busy ? 'disabled' : ''}>Add</button>
+        </form>
+      </section>
+
+      <section><h2>Email</h2>
+        ${r.tenant ? `<p>Codes are sent by tenant <code>${esc(r.tenant.id)}</code>${r.tenant.name ? ` as “${esc(r.tenant.name)}”` : ''}${r.tenant.fromEmail ? ` from ${esc(r.tenant.fromEmail)}` : ''}.
+          ${r.tenantManaged ? 'Effortless manages it: its name, sender and colour are in your project\'s Settings, Sign-in.' : ''}</p>
+          <div class="row"><button id="send" ${s.busy ? 'disabled' : ''}>Send me a code</button><label>Code<input id="tcode" inputmode="numeric"></label><button id="verify" ${s.busy ? 'disabled' : ''}>Check it</button></div>
+          <p class="muted">Proves the tenant sends to you and accepts its code. No session is made.</p>`
+        : '<p class="err">No magic-link tenant yet. On Effortless the platform makes one when the seed is added; elsewhere create one at magiclink.effortlessapi.com and set tenantId in magic-links.config.json.</p>'}
+      </section>
+
+      <section><h2>Where people and roles live</h2>
+        <p class="muted">From <code>server/magic-links/magic-links.config.json</code>. To change one, ask the agent (it re-runs install.mjs and rebuilds); every setting is described in the seed's README.</p>
+        <div class="scroll"><table><tr><th>Setting</th><th>Value</th><th>Meaning</th></tr>
+        ${r.mapping.map((m) => `<tr><td><code>${esc(m.key)}</code></td><td><code>${esc(m.value || '—')}</code></td><td class="muted">${esc(m.description)}</td></tr>`).join('')}</table></div>
+      </section>`;
+
+    const $ = (id) => this.shadowRoot.getElementById(id);
+    const rowsUrl = (id) => `/api/tables/${encodeURIComponent(p.table)}/rows${id !== undefined ? `/${encodeURIComponent(id)}` : ''}`;
+    this.shadowRoot.querySelectorAll('[data-active]').forEach((el) => {
+      el.onchange = () => { const row = s.people[Number(el.dataset.active)]; this.act(async () => { await call('PATCH', rowsUrl(row[k]), { [act]: inv ? !el.checked : el.checked }); await this.load(); }, 'Saved.'); };
+    });
+    this.shadowRoot.querySelectorAll('[data-role]').forEach((el) => {
+      el.onchange = () => { const row = s.people[Number(el.dataset.role)]; this.act(async () => { await call('PATCH', rowsUrl(row[k]), { [p.role]: el.value || null }); await this.load(); }, 'Saved.'); };
+    });
+    this.shadowRoot.querySelectorAll('[data-del]').forEach((el) => {
+      el.onclick = () => { const row = s.people[Number(el.dataset.del)]; this.act(async () => { await call('DELETE', rowsUrl(row[k])); await this.load(); }, 'Removed.'); };
+    });
+    if ($('add')) $('add').onsubmit = (e) => {
+      e.preventDefault();
+      const email = $('nemail').value.trim().toLowerCase();
+      const row = { [p.email]: email };
+      if (p.key) row[p.key] = email;
+      if (p.name && $('nname')) row[p.name] = $('nname').value.trim() || email.split('@')[0];
+      if (p.role && $('nrole')) row[p.role] = $('nrole').value.trim() || null;
+      if (act) row[act] = !inv;
+      this.act(async () => { await call('POST', rowsUrl(), row); await this.load(); }, `Added ${email}.`);
+    };
+    if ($('send')) $('send').onclick = () => this.act(async () => { const o = await call('POST', '/setup/test-code'); this.state.sentTo = o.sentTo; }, `Code sent to ${r.you.email}.`);
+    if ($('verify')) $('verify').onclick = () => this.act(async () => { await call('POST', '/setup/test-verify', { code: $('tcode').value.trim() }); }, 'The tenant works: code accepted.');
+  }
 }
+
+if (!customElements.get('ml-gate')) customElements.define('ml-gate', MlGate);
+if (!customElements.get('ml-setup')) customElements.define('ml-setup', MlSetup);

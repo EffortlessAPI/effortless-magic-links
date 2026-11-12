@@ -1,13 +1,13 @@
 {
   "AppUsers": {
-    "Description": "The people approved to sign in. There is no sign-up: a verified email address only gets someone in if it is a row here and IsActive. Roles come from this table, never from a token. Added by the effortless-magic-links seed.",
+    "Description": "The people who may sign in. There is no sign-up: a proven email address only gets someone in when it is a row here and IsActive. Roles come from this table, never from a token. Added by the effortless-magic-links seed because the project had no table of people of its own.",
     "schema": [
-      {"name": "AppUserId", "datatype": "string", "type": "raw", "nullable": false, "Description": "Stable id of the approved user. The seed uses the lower-case email address."},
-      {"name": "EmailAddress", "datatype": "string", "type": "raw", "nullable": false, "Description": "The address the person signs in with. Matched case-insensitively against the verified email in the magic-link token."},
-      {"name": "DisplayName", "datatype": "string", "type": "raw", "nullable": true, "Description": "How the app shows this person."},
-      {"name": "Role", "datatype": "string", "type": "raw", "nullable": false, "Description": "What the person may do: admin, or a role your policies name. Comma-separate to give several."},
-      {"name": "IsActive", "datatype": "boolean", "type": "raw", "nullable": false, "Description": "False keeps the row but lets the person in no more."},
-      {"name": "Name", "datatype": "string", "type": "calculated", "nullable": false, "Description": "Display label for this user.", "formula": "={{AppUserId}}"}
+      { "name": "AppUserId", "datatype": "string", "type": "raw", "nullable": false, "Description": "Stable id of the person. The seed uses the lower-cased email address." },
+      { "name": "EmailAddress", "datatype": "string", "type": "raw", "nullable": false, "Description": "The address the person signs in with. Matched case-blind against the email they prove." },
+      { "name": "DisplayName", "datatype": "string", "type": "raw", "nullable": true, "Description": "How the app shows this person." },
+      { "name": "AppRole", "datatype": "string", "type": "relationship", "nullable": true, "RelatedTo": "AppRoles", "Description": "What the person may do: a row of AppRoles (admin, member, ...)." },
+      { "name": "IsActive", "datatype": "boolean", "type": "raw", "nullable": false, "Description": "False keeps the row but lets the person in no more, open sessions included." },
+      { "name": "Name", "datatype": "string", "type": "calculated", "nullable": true, "Description": "Display label for this person.", "formula": "={{DisplayName}}" }
     ],
     "data": []
   }

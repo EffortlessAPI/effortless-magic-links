@@ -1,111 +1,152 @@
-# Integrating this seed (for Claude, or anyone with ten minutes)
+# Integrating sign-in (for the engine: the agent working in the project)
 
-You are in `magic-links/` inside a project that already has the **Backend API** add-in
-(`backend/api` with `custom.js`, `backend/postgres`). Do these in order. Each step says how
-to know it worked. Nothing here needs a network call in dev.
+You are in a project with `effortless-rulebook/`, its own `server/` (Express, from the Loops
+template: `server/src/server.js`, `server/src/generated-api.js`) and an app in `app/`. The seed is
+in `server/magic-links/`. Do the steps in order; each ends with how to know it worked. Every
+command runs from the project root.
 
-## 0. Ask the person two things, then do the rest without asking
+**What to ask the person, and only this:** which table holds the people who sign in, when step 1
+does not make it clear; and the first admin's email (and name), if you do not already know it.
+Everything else you work out. Say what each rulebook change adds before you write it.
 
-1. "Which email addresses are approved to start with?" (they become `admin` rows in `AppUsers`;
-   at least one is needed before beta or production, because there is no sign-up)
-2. Nothing else. Roles beyond `admin` are added later, in the admin screen.
+**On Effortless** the platform has already minted the project's magic-link tenant and gives every
+stage `MAGICLINK_TENANT_ID`; there is nothing to create. The message that sent you here may carry
+answers already (the admin's email, the table); use them.
 
-## 1. The approved-users table (the rulebook)
+## 1. Find where the people live
 
 ```bash
-node magic-links/scripts/merge-rulebook.mjs --rulebook effortless-rulebook/effortless-rulebook.json \
-     --admin ann@example.com --admin bob@example.com          # dry run: shows what it adds
-# editing the rulebook is a change to the project's source of truth: say what it adds, then --write
-node magic-links/scripts/merge-rulebook.mjs ... --write
-effortless build            # in the project root; regenerates app_users + vw_app_users
+node server/magic-links/scripts/candidates.mjs
 ```
 
-If the project already has a users table, skip this and set `usersTable`, `usersView`,
-`emailColumn`, `roleColumn`, `activeColumn` (and `userKeyColumn: ""` if it has no separate key)
-in `magic-links/magic-links.config.json`. Do **not** create `app.app_users` by hand.
+It ranks the tables that could hold the people (those with an email field), says why, and lists
+its doubts. Decide:
 
-Works when: `select * from vw_app_users` lists the admins.
+- **One clear table** (the editor's `ERBUsers`, or one domain table like `Volunteers`): use its
+  mapping line.
+- **A close call** (two tables of people, a role on the row AND a grants table, two email fields):
+  ask the person, in one sentence naming the choices. Do not guess.
+- **No table with an email:** the seed adds `AppUsers` and `AppRoles` (step 2, the two `--add-...`
+  flags). Say so first: it is two new tables in their rulebook.
+- **A status text instead of an active flag** (`Status = "Active"`): ask whether to add a calculated
+  boolean field (`IsActive = {{Status}} = "Active"`) and map `activeField` to it, or to leave
+  `activeField` blank (every row can sign in). An inverted flag (`IsArchived`) maps as `!IsArchived`.
+- **No role anywhere:** say that nobody will be admin, and ask before adding a role field.
 
-## 2. The API (one edit, in the file rebuilds never overwrite)
+Works when: you can name usersTable, emailField, and where the roles come from (a role field, a
+grants table, or none), and the person agreed to anything ambiguous.
 
-In `backend/api/custom.js`, add the import at the top and the call as the first line of
-`registerCustom(app)`:
+## 2. Write the mapping and the SQL into the rulebook
+
+Dry run first, with the mapping from step 1 and the first admin:
+
+```bash
+node server/magic-links/scripts/install.mjs --set usersTable=Volunteers --set userKeyField=VolunteerId \
+     --set nameField=FullName --set roleField=Role --set rolesTable= --set roleKeyField= \
+     --person "olive@kitchen.test|Olive Owner|admin"
+```
+
+(or, with nothing to map: `--add-users-table --add-roles-table --person "you@x.com|You|admin"`.)
+It prints every change, one line each. Tell the person what it adds to their rulebook (the two
+`ERBCustomizations` rows are the database's sign-in rules; the person row is their first admin),
+then run the same command with `--write`. A PROBLEM line names what is wrong and what the table
+does have; fix the `--set` and run it again.
+
+Works when: the dry run lists the changes with no PROBLEM line, and the `--write` run prints the
+same list and exits 0. Running it again says "Nothing to change".
+
+## 3. Put the seed in front of the project's server
+
+In `server/package.json` add `pg` (`cd server && npm install pg`). In `server/src/server.js`,
+ABOVE `app.use('/api', routes)`:
 
 ```js
-import { registerMagicLinks } from '../../magic-links/server/index.js';
-import { pool } from './db.js';
-// ...
-export default function registerCustom(app) {
-  registerMagicLinks(app, { pool });
-  // ...whatever was already here
+import pg from 'pg';
+import { magicLinks } from '../magic-links/server/index.js';
+
+const signIn = magicLinks({ pool: new pg.Pool({ connectionString: process.env.DATABASE_URL }) });
+app.use(signIn.middleware);
 ```
 
-Restart the API. Works when the log says `magic-links: dev mode ready` and
-`curl localhost:<port>/auth/session` returns `"mode":"dev","devAdmin":true`.
+Project routes that need the person read `req.signIn.claims` (`sub`, `email`, `roles`, your
+claims). Code that writes the database itself uses `signIn.asCaller(token, sql, params)` (as the
+person) or `signIn.asSystem(sql, params)` (a webhook, bookkeeping), never the pool bare: on a
+published stage the bare connection is held to row-level security and sees nothing.
 
-## 3. The app
+Works when: after a rebuild (step 5) `curl -s localhost:<server port>/api/auth/session` answers
+`"mode":"dev"` and `/api/tables/<any table>` answers 401 `sign_in_required`.
 
-- Dev proxy: forward `/auth` and `/magic-links` to the API next to `/api` (Vite `server.proxy`).
-  Keep the app and the API on ONE origin: the session is an HttpOnly cookie, and the generated
-  API's `Access-Control-Allow-Origin: *` cannot carry credentials across origins.
-- Load `/magic-links/ui/magic-links-ui.js` and wrap the whole app in `<ml-gate>`.
-  Dev shows **pick your user**; live shows the email-code sign-in. Nothing else in the app changes.
-- Add `<ml-admin>` to the app's admin area, only for `session.admin` (the gate fires a
-  `ml-session` event on `document`). It manages the tenant, the email branding and the approved users.
-- Old Bearer-token callers keep working: the API accepts `Authorization: Bearer <jwt>` as well as the cookie.
+## 4. Wrap the app in the gate
 
-Works when: opening the app shows "Pick your user"; choosing someone shows their email in the
-corner badge and `GET /api/...` returns what THEY may see.
+In `app/index.html`, load the UI and wrap the root:
 
-## 4. Your rules (row-level security)
+```html
+<script type="module" src="/api/magic-links/ui/magic-links-ui.js"></script>
+...
+<ml-gate><div id="root"></div></ml-gate>
+```
 
-Out of the box any approved person can do anything. Add real rules as ordinary policies,
-**`TO ml_app`**, reading `app.jwt_email()` and `app.has_role('x')`:
+The app's own calls need no change: they are same-origin, so the session cookie goes with them.
+The persona picker becomes who is signed in: read `window.mlSession` (or listen for the
+`ml-session` event on `document`) and show each persona's routes to the people whose `roles`
+include it. Map each persona to a role of the roles table, and give each role at least one sample
+person in the rulebook's data, so Dev's pick-your-user list shows one of each. Keep a way to the
+setup screen for admins (`window.mlSession.admin`, link `/api/magic-links/setup`).
+
+Works when: opening the preview shows "Pick who you are" with the people from the table; picking
+one shows the app with their name in the corner, and the data is what their role may see.
+
+## 5. Rebuild, then check
+
+Rebuild (the editor's Rebuild, or `effortless build` and a restart of the backend) so the two rows
+become SQL in the database. Then:
+
+```bash
+node server/magic-links/scripts/doctor.mjs
+```
+
+and, signed in as an admin, open `/api/magic-links/setup` (or `curl` `GET /api/auth/setup` with the
+session cookie): every check there should be green, each red one says what to do. The `api` check
+is red while the generated API does not yet run requests inside `auth.sign_in`; tell the person
+plainly that rows are not filtered per person until it does.
+
+Works when: the doctor prints "Everything is wired" and the setup screen says "Ready to publish".
+
+## 6. Your own rules (optional)
+
+Out of the box everyone signed in can read and write every table except the people (each sees
+their own row; admins all). A rule of the project's own is a policy in the project's
+`04b-customize-policies.sql` row, AHEAD of the seed's block (install.mjs keeps its block last):
 
 ```sql
-CREATE POLICY orders_own ON orders FOR ALL TO ml_app
-  USING (app.has_role('admin') OR customer_email = app.jwt_email())
-  WITH CHECK (app.has_role('admin') OR customer_email = app.jwt_email());
+CREATE POLICY own_shifts ON shifts FOR ALL
+  USING (app.is_admin() OR volunteer = app.user_key())
+  WITH CHECK (app.is_admin() OR volunteer = app.user_key());
 ```
 
-Put them in the project's SQL customization (`ERBCustomizations` or a `*b-customize-*` file) so
-a rebuild keeps them; the API re-applies this seed's defaults on every boot, and the allow-all
-default steps aside on any table that has a policy of yours. `ml_require_approved` (restrictive) stays
-on every table: whatever your policies say, a person who is not an approved, active user gets nothing.
+The moment a table has a policy of the project's own, the seed's allow-all steps aside on it. The
+restrictive "signed in" rule stays whatever you write. Helpers: `app.user_key()`, `app.jwt_email()`,
+`app.has_role('x')`, `app.is_admin()`, `app.claim('company')`, `app.session()`.
 
-Works when: pick a member, fetch a table you restricted, see only their rows; try a write to
-someone else's row and get `violates row-level security policy`.
+Works when: signed in (Dev's picker) as a non-admin, the table shows only their rows; a write to
+someone else's row is refused (`row-level security`).
 
-## 5. Publishing to beta or production
+## 7. Publishing
 
-Nothing to switch in code. The stage's environment decides: `NODE_ENV=production` or
-`EFFORTLESS_STAGE=beta|production` means **live**. Before the first publish:
+Nothing to switch. On a published stage `STAGE` is `beta` or `production`, so the seed runs real
+sign-in: the database is marked live on first start, simulated sessions stop working there for
+good, and the stage's people are the rulebook's data at the first publish (later, that stage's
+admins manage them in the setup screen; Dev's rows reach it only by a data migration).
 
-1. In dev, open the admin screen, "Magic-link tenant": sign in with your developer email,
-   **Create tenant**, set the branding. It writes `magic-links/magic-links.config.json`
-   (public values only). **Commit that file.**
-2. The published database needs its admin rows: `AppUsers` data travels with the rulebook, so
-   the `--admin` rows from step 1 are already there. Check `select * from vw_app_users` on the new stage.
-3. Publish. On boot the API fetches the tenant's PUBLIC key, trusts it, deletes every dev key from that
-   database and marks it live forever. It refuses to start if there is no tenant: it never falls back to dev.
-
-Works when: `/auth/session` says `"mode":"live"`, `/auth/dev/users` is a 404, a code arrives for
-an approved address and does not for a stranger.
+Works when: on the stage, `/api/auth/session` says `"mode":"live"`, `/api/auth/simulated/users` is a
+404, a code arrives for an approved address and not for a stranger.
 
 ## What not to do
 
-- Don't read roles from the token (`additional_claims` are whatever the caller asked magic-links to
-  bake in). Roles come from `AppUsers`; `app.has_role()` already does that.
-- Don't `GRANT` anything to `ml_app` yourself, and don't connect the browser to Postgres: the
-  guarantee is "every request through this API runs as the person". It is not a defence against SQL
-  injection in your own API (that code could `RESET ROLE`).
-- Don't call `pool.connect()` inside a route: it would skip row-level security, so the seed throws.
-  Use `pool.query`. Editor routes that must change the schema (DDL, Save) are listed in
-  `systemPaths` in the config: admin-only, run unscoped.
-- Don't edit `sql/` to add a table's policy. Add the policy to the project's own SQL.
-
-## Tests
-
-`npm install && npm test` in this folder (needs a Postgres 15+ it can create databases in:
-`ML_TEST_PG=postgres://user@host:port/postgres`). 16 tests, including a mutation check
-that the approval gate is what keeps a deactivated user out.
+- Do not add `AppUsers` or `AppRoles` when the project already has people or roles. Map them.
+- Do not edit the SQL between the seed's markers in the `ERBCustomizations` rows, or Dev's seeded
+  `postgres/02b-*.sql` / `04b-*.sql` copies: change `magic-links.config.json` (install.mjs `--set`)
+  and re-run install.mjs. It deletes Dev's stale copies itself.
+- Do not query the database from the project's server with the bare pool inside a request.
+- Do not put a tenant key, a session or a password anywhere in the repo. The config holds public
+  values only.
